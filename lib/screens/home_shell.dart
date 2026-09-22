@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../theme.dart';
 import 'dashboard_screen.dart';
 import 'inventory_screen.dart';
@@ -16,6 +17,21 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  bool _navVisible = true;
+
+  /// Hide the floating bar when the user scrolls the content down, and bring it
+  /// straight back on any scroll up — so the tabs are never more than a small
+  /// upward flick away.
+  bool _onScroll(UserScrollNotification n) {
+    // Ignore horizontal scrollers (chart carousels, wide tables).
+    if (n.metrics.axis != Axis.vertical) return false;
+    if (n.direction == ScrollDirection.reverse && _navVisible) {
+      setState(() => _navVisible = false);
+    } else if (n.direction == ScrollDirection.forward && !_navVisible) {
+      setState(() => _navVisible = true);
+    }
+    return false;
+  }
 
   static const _pages = [
     DashboardScreen(),
@@ -36,11 +52,26 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       // Let page content flow behind the floating bar; pages add bottom padding.
       extendBody: true,
-      body: IndexedStack(index: _index, children: _pages),
-      bottomNavigationBar: _FloatingNavBar(
-        index: _index,
-        items: _items,
-        onTap: (i) => setState(() => _index = i),
+      body: NotificationListener<UserScrollNotification>(
+        onNotification: _onScroll,
+        child: IndexedStack(index: _index, children: _pages),
+      ),
+      bottomNavigationBar: AnimatedSlide(
+        offset: _navVisible ? Offset.zero : const Offset(0, 1.6),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOut,
+        child: AnimatedOpacity(
+          opacity: _navVisible ? 1 : 0,
+          duration: const Duration(milliseconds: 180),
+          child: _FloatingNavBar(
+            index: _index,
+            items: _items,
+            onTap: (i) => setState(() {
+              _index = i;
+              _navVisible = true;
+            }),
+          ),
+        ),
       ),
     );
   }
@@ -65,7 +96,7 @@ class _FloatingNavBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
         child: Container(
           height: 64,
           decoration: BoxDecoration(

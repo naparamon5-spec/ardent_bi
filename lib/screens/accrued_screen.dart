@@ -367,15 +367,6 @@ class _AccruedScreenState extends State<AccruedScreen> {
             'accrual ledger, so most lines show zero there — that is the extract, not a gap in the filter.',
             style: TextStyle(fontSize: 11.5, height: 1.35, color: t.textMuted),
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: _barButton(t,
-                icon: Icons.filter_list_outlined,
-                label: 'Advanced filters',
-                badge: filters.activeCount('accrued'),
-                onTap: () => showFilterSheet(context, FilterModule.accrued)),
-          ),
         ]),
       ),
     );
@@ -418,35 +409,6 @@ class _AccruedScreenState extends State<AccruedScreen> {
         ),
       ),
     ]);
-  }
-
-  Widget _barButton(BiTokens t,
-      {required IconData icon, required String label, int badge = 0, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: t.gridline),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 15, color: t.textSecondary),
-          const SizedBox(width: 6),
-          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textPrimary)),
-          if (badge > 0) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(color: t.brandSoft, borderRadius: BorderRadius.circular(999)),
-              child: Text('$badge', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: t.brand)),
-            ),
-          ],
-        ]),
-      ),
-    );
   }
 
   // ── Charge type mix ─────────────────────────────────────────────────

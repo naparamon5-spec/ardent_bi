@@ -246,7 +246,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Inventory'),
-        actions: [FilterButton(count: filters.activeInventoryCount, onTap: () => showFilterSheet(context, FilterModule.inventory))],
+        actions: [
+          InsightsButton(count: _insights.length, onTap: () => showInsightsSheet(context, _insights)),
+          FilterButton(count: filters.activeInventoryCount, onTap: () => showFilterSheet(context, FilterModule.inventory)),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _load,
@@ -277,15 +280,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   loading: _loading,
                   sub: '${Fmt.number(dead['skus'] ?? 0)} SKUs'),
             ]),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: _barButton(t,
-                  icon: Icons.lightbulb_outline,
-                  label: 'Insights',
-                  badge: _insights.length,
-                  onTap: () => showInsightsSheet(context, _insights)),
-            ),
             const SizedBox(height: 12),
             BiChartCard(
               title: 'Stock by $_dimLabel',
@@ -341,15 +335,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
               }),
             ),
           ]),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: _barButton(t,
-                icon: Icons.filter_list_outlined,
-                label: 'Advanced filters',
-                badge: filters.activeInventoryCount,
-                onTap: () => showFilterSheet(context, FilterModule.inventory)),
-          ),
         ]),
       ),
     );
@@ -390,35 +375,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
         ),
       ),
     ]);
-  }
-
-  Widget _barButton(BiTokens t,
-      {required IconData icon, required String label, int badge = 0, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: t.gridline),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 15, color: t.textSecondary),
-          const SizedBox(width: 6),
-          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textPrimary)),
-          if (badge > 0) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(color: t.brandSoft, borderRadius: BorderRadius.circular(999)),
-              child: Text('$badge', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: t.brand)),
-            ),
-          ],
-        ]),
-      ),
-    );
   }
 
   // ── Ageing ──────────────────────────────────────────────────────────

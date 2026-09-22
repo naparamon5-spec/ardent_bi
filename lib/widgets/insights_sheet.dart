@@ -24,11 +24,29 @@ void showInsightsSheet(BuildContext context, List<dynamic> items) {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Insights',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.textPrimary)),
-            const SizedBox(height: 2),
-            Text('What stands out in the current selection',
-                style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Insights',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.textPrimary)),
+                      const SizedBox(height: 2),
+                      Text('What stands out in the current selection',
+                          style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  icon: Icon(Icons.close, size: 22, color: t.textSecondary),
+                  tooltip: 'Close',
+                ),
+              ],
+            ),
             const SizedBox(height: 14),
             Flexible(
               child: items.isEmpty

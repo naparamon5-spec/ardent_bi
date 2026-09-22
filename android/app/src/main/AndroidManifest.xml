@@ -2,7 +2,7 @@
     <!-- The client talks to the Ardent BI API over the network. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="ardent_bi"
+        android:label="ArdentBI"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

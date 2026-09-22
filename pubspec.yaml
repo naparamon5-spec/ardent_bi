@@ -47,12 +47,35 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  flutter_launcher_icons: ^0.14.4
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+# App launcher icon configuration. Run:
+#   flutter pub get
+#   dart run flutter_launcher_icons
+# The brand navy (#4F7489) fills the padded background behind the logo.
+flutter_launcher_icons:
+  image_path: "assets/logo_icon.png"
+  adaptive_icon_background: "#4F7489"
+  adaptive_icon_foreground: "assets/logo_icon.png"
+  background_color_ios: "#4F7489"
+  remove_alpha_ios: true
+  android: true
+  ios: true
+  web:
+    generate: true
+    background_color: "#4F7489"
+    theme_color: "#4F7489"
+  windows:
+    generate: true
+  macos:
+    generate: true
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

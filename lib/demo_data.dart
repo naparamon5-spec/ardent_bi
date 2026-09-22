@@ -532,49 +532,89 @@ class DemoData {
     }
 
     // ── Re-Order Point ────────────────────────────────────────────────
+    if (path == '/api/reorder-point/meta') {
+      return {
+        'dimensions': const [
+          {'key': 'brand', 'label': 'Brand'},
+          {'key': 'productGroup', 'label': 'Product Group'},
+          {'key': 'verdict', 'label': 'Ordering Verdict'},
+        ],
+        'measures': const [
+          {'key': 'forecast', 'label': 'Forecast Qty', 'format': 'number'},
+          {'key': 'amount', 'label': 'Order Amount', 'format': 'currency'},
+          {'key': 'items', 'label': 'Items', 'format': 'number'},
+          {'key': 'onHand', 'label': 'On Hand', 'format': 'number'},
+        ],
+      };
+    }
     if (path == '/api/reorder-point/kpis') {
-      const items = 1440;
-      const toOrder = 312;
+      const items = 1428;
+      const toOrder = 93;
       return {
         'items': items,
-        'brands': 12,
-        'onHand': 48210,
+        'brands': 29,
+        'onHand': 116845,
         'backOrder': 1820,
-        'forecast': 9640,
+        'forecast': 9761,
         'safetyStock': 5200,
         'itemsToOrder': toOrder,
-        'belowRop': 274,
-        'amount': _val(31e6, 14e6),
+        'belowRop': 93,
+        'amount': _val(101e6, 5e6),
         'onHandAmount': _val(97e6, 20e6),
-        'itemsWithoutCost': 41,
+        'itemsWithoutCost': 4,
         'toOrderShare': toOrder / items * 100,
-        'belowRopShare': 274 / items * 100,
+        'belowRopShare': 93 / items * 100,
       };
     }
     if (path == '/api/reorder-point/breakdown') {
       final dim = _bodyStr(body, 'dimension', 'brand');
-      final names = _namesFor(dim);
-      final rows = names
-          .map((n) => {'name': n, 'forecast': (30 + _rng.nextInt(900)).toDouble(), 'amount': _val(1e6, 6e6), 'items': 10 + _rng.nextInt(120)})
-          .toList()
+      // The ordering-verdict view is the web's second chart: a small fixed set
+      // of dispositions rather than a catalogue dimension.
+      final names = dim == 'verdict' ? const ['Hold', 'prepare PRS'] : _namesFor(dim);
+      final rows = names.map((n) {
+        final forecast = dim == 'verdict'
+            ? (n == 'Hold' ? 1300.0 : 93.0)
+            : (30 + _rng.nextInt(900)).toDouble();
+        return {
+          'name': n,
+          'forecast': forecast,
+          'amount': _val(1e6, 6e6),
+          'items': dim == 'verdict' ? (n == 'Hold' ? 1335 : 93) : 10 + _rng.nextInt(120),
+          'onHand': (forecast * (2 + _rng.nextDouble() * 6)).round(),
+        };
+      }).toList()
         ..sort((a, b) => (b['forecast'] as double).compareTo(a['forecast'] as double));
       return {'dimension': dim, 'rows': rows};
     }
     if (path == '/api/reorder-point/detail') {
-      final rows = List.generate(25, (i) {
-        final toOrder = 5 + _rng.nextInt(120);
+      const total = 1428;
+      final page = _bodyInt(body, 'page', 1);
+      final pageSize = _bodyInt(body, 'pageSize', 25);
+      final start = (page - 1) * pageSize;
+      final count = (start + pageSize) > total ? (total - start) : pageSize;
+      final rows = List.generate(count < 0 ? 0 : count, (j) {
+        final i = start + j;
+        final brand = _brands[i % _brands.length];
+        final onHand = _rng.nextInt(600);
+        final safety = 200 + _rng.nextInt(300);
+        final lead = safety * 2;
         return {
-          'item': 'FORPRD${(1000 + i).toString()}',
-          'itemDescription': '${_brands[i % _brands.length]} module ${100 + i}',
-          'brand': _brands[i % _brands.length],
-          'onHand': _rng.nextInt(60),
-          'backOrder': _rng.nextInt(10),
-          'rop': 20 + _rng.nextInt(40),
-          'forecast': toOrder,
+          'sku': '${brand.substring(0, 3).toUpperCase()}ACC${(1000 + i).toString().padLeft(4, '0')}',
+          'item': '${brand.substring(0, 3).toUpperCase()}ACC${(1000 + i).toString().padLeft(4, '0')}',
+          'itemDescription': '$brand module ${100 + i} — cat 6 UTP cable assembly',
+          'brand': brand,
+          'productGroup': _pgroups[i % _pgroups.length],
+          'onHand': onHand,
+          'backOrder': _rng.nextInt(600),
+          'safetyStock': safety,
+          'leadTimeDemand': lead,
+          'rop': safety + lead ~/ 2 + _rng.nextInt(200),
+          'forecast': 100 + _rng.nextInt(800),
           'orderAmount': _val(50000, 400000),
+          'avgNetCost': _val(24, 4000),
         };
       });
-      return {'rows': rows, 'total': 312, 'page': 1, 'pageSize': 25};
+      return {'rows': rows, 'total': total, 'page': page, 'pageSize': pageSize};
     }
     if (path.startsWith('/api/reorder-point/options/')) {
       final dim = path.split('/').last;
@@ -754,9 +794,7 @@ class DemoData {
         }
         return {'mode': mode, 'rows': rows, 'summary': null};
       }
-      final labels = mode == 'yoy'
-          ? ['2023', '2024', '2025', '2026']
-          : ['Q2 2025', 'Q3 2025', 'Q4 2025', 'Q1 2026', 'Q2 2026'];
+      final labels = _cmpLabels(mode);
       double prevSales = _val(60e6, 20e6);
       final rows = labels.map((l) {
         final s = prevSales * (0.9 + _rng.nextDouble() * 0.4);
@@ -773,14 +811,39 @@ class DemoData {
           'growth': {
             'sales': g(s, prior),
             'grossProfit': g(cur['grossProfit'] as double, pr['grossProfit'] as double),
+            'qty': g((cur['qty'] as num).toDouble(), (pr['qty'] as num).toDouble()),
+            'gmPercent': (cur['gmPercent'] as double) - (pr['gmPercent'] as double),
           },
         };
       }).toList();
       return {'mode': mode, 'rows': rows, 'summary': null};
     }
+    if (path == '/api/sales/comparison-breakdown') {
+      // Brand × period pivot behind the "Brand by period" table. Mirrors the
+      // web: each brand carries a value per period and a row total. In this
+      // dataset the booked sales sit in the latest period, so earlier columns
+      // read zero and the total equals the latest column.
+      final mode = _bodyStr(body, 'mode', 'yoy');
+      final periods = _cmpLabels(mode);
+      final last = periods.length - 1;
+      final rows = _brands.map((b) {
+        final v = _val(2e6, 90e6);
+        final values = [for (var i = 0; i < periods.length; i++) i == last ? v : 0.0];
+        return {'name': b, 'values': values, 'total': v};
+      }).toList()
+        ..sort((a, b) => (b['total'] as double).compareTo(a['total'] as double));
+      final grandTotal = rows.fold<double>(0, (s, r) => s + (r['total'] as double));
+      return {'mode': mode, 'periods': periods, 'rows': rows, 'grandTotal': grandTotal};
+    }
 
     return {};
   }
+
+  /// Period labels for the year-on-year and quarter-on-quarter comparisons
+  /// (month-on-month builds its own rolling labels).
+  static List<String> _cmpLabels(String mode) => mode == 'yoy'
+      ? const ['2023', '2024', '2025', '2026']
+      : const ['Q2 2025', 'Q3 2025', 'Q4 2025', 'Q1 2026', 'Q2 2026'];
 
   static List<String> _namesFor(String dim) {
     switch (dim) {
@@ -809,6 +872,15 @@ class DemoData {
 
   static String _bodyStr(Object? body, String key, String fallback) {
     if (body is Map && body[key] != null) return body[key].toString();
+    return fallback;
+  }
+
+  static int _bodyInt(Object? body, String key, int fallback) {
+    if (body is Map && body[key] != null) {
+      final v = body[key];
+      if (v is num) return v.toInt();
+      return int.tryParse(v.toString()) ?? fallback;
+    }
     return fallback;
   }
 }
