@@ -125,6 +125,9 @@ class BiChartCard extends StatefulWidget {
   final List<MarkLineSpec> markLines;
   final bool defaultTable;
   final BiChartType? initialType;
+  /// Overrides the categorical series palette — the ageing charts are painted
+  /// with the fixed, positional ageing palette, as on the web.
+  final List<Color>? palette;
   /// Per-chart insights — the bulb in the card header opens them inline, the
   /// mobile stand-in for the web's per-visual insight panel.
   final List<Map<String, dynamic>> insights;
@@ -146,6 +149,7 @@ class BiChartCard extends StatefulWidget {
     this.markLines = const [],
     this.defaultTable = false,
     this.initialType,
+    this.palette,
     this.insights = const [],
   });
 
@@ -422,12 +426,12 @@ class _BiChartCardState extends State<BiChartCard> {
         return _LineView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, fill: true, markLines: widget.markLines);
       case BiChartType.column:
         return _seriesMode
-            ? _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: false)
-            : _BarsColumnView(bars: widget.bars, currency: widget.currency, signColors: widget.signColors, height: widget.height, onTap: widget.onBarTap);
+            ? _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: false, palette: widget.palette)
+            : _BarsColumnView(bars: widget.bars, currency: widget.currency, signColors: widget.signColors, height: widget.height, onTap: widget.onBarTap, palette: widget.palette);
       case BiChartType.stacked:
-        return _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: true);
+        return _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: true, palette: widget.palette);
       case BiChartType.bar:
-        return _HBarView(bars: widget.bars, currency: widget.currency, signColors: widget.signColors, onTap: widget.onBarTap);
+        return _HBarView(bars: widget.bars, currency: widget.currency, signColors: widget.signColors, onTap: widget.onBarTap, palette: widget.palette);
       case BiChartType.donut:
         return _DonutView(bars: widget.bars, currency: widget.currency, height: widget.height);
       case BiChartType.treemap:
@@ -549,14 +553,16 @@ FlTitlesData _titles(BiTokens t, List<String> categories, bool currency, double 
       ),
     );
 
-Widget _legend(BiTokens t, List<SeriesSpec> series) => Wrap(
+Widget _legend(BiTokens t, List<SeriesSpec> series, [List<Color>? palette]) => Wrap(
       spacing: 14,
       runSpacing: 6,
       children: [
         for (var i = 0; i < series.length; i++)
           Row(mainAxisSize: MainAxisSize.min, children: [
             Container(width: 10, height: 10,
-                decoration: BoxDecoration(color: t.series[i % t.series.length], borderRadius: BorderRadius.circular(2))),
+                decoration: BoxDecoration(
+                    color: (palette ?? t.series)[i % (palette ?? t.series).length],
+                    borderRadius: BorderRadius.circular(2))),
             const SizedBox(width: 5),
             Text(series[i].name, style: TextStyle(fontSize: 11, color: t.textSecondary)),
           ]),
@@ -677,6 +683,7 @@ class _ColumnsView extends StatelessWidget {
   final bool percent;
   final double height;
   final bool stacked;
+  final List<Color>? palette;
   const _ColumnsView({
     required this.categories,
     required this.series,
@@ -684,7 +691,10 @@ class _ColumnsView extends StatelessWidget {
     required this.height,
     required this.stacked,
     this.percent = false,
+    this.palette,
   });
+
+  List<Color> _colors(BiTokens t) => palette ?? t.series;
 
   @override
   Widget build(BuildContext context) {
@@ -728,7 +738,7 @@ class _ColumnsView extends StatelessWidget {
                   getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem(
                     percent ? Fmt.percent(rod.toY) : (currency ? Fmt.money(rod.toY) : Fmt.number(rod.toY)),
                     TextStyle(
-                      color: stacked ? t.series[rodIndex % t.series.length] : rod.color ?? t.brand,
+                      color: stacked ? _colors(t)[rodIndex % _colors(t).length] : rod.color ?? t.brand,
                       fontWeight: FontWeight.w600,
                       fontSize: 11,
                     ),
@@ -745,7 +755,7 @@ class _ColumnsView extends StatelessWidget {
                             for (var i = 0; i < series.length; i++)
                               BarChartRodData(
                                 toY: series[i].data.length > x ? series[i].data[x] : 0.0,
-                                color: t.series[i % t.series.length],
+                                color: _colors(t)[i % _colors(t).length],
                                 width: series.length == 1 ? 18 : 10,
                                 borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
                               ),
@@ -756,7 +766,7 @@ class _ColumnsView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        _legend(t, series),
+        _legend(t, series, palette),
       ],
     );
   }
@@ -766,7 +776,7 @@ class _ColumnsView extends StatelessWidget {
     var from = 0.0;
     for (var i = 0; i < series.length; i++) {
       final v = series[i].data.length > x ? series[i].data[x] : 0.0;
-      items.add(BarChartRodStackItem(from, from + v, t.series[i % t.series.length]));
+      items.add(BarChartRodStackItem(from, from + v, _colors(t)[i % _colors(t).length]));
       from += v;
     }
     return BarChartRodData(
@@ -784,12 +794,14 @@ class _BarsColumnView extends StatelessWidget {
   final bool signColors;
   final double height;
   final void Function(String category)? onTap;
+  final List<Color>? palette;
   const _BarsColumnView({
     required this.bars,
     required this.currency,
     required this.signColors,
     required this.height,
     this.onTap,
+    this.palette,
   });
 
   @override
@@ -850,7 +862,9 @@ class _BarsColumnView extends StatelessWidget {
                         ? (bars[i].value < 0 ? AppColors.critical : AppColors.good)
                         : bars[i].selected
                             ? t.brand
-                            : t.series[0],
+                            : palette == null
+                                ? t.series[0]
+                                : palette![i % palette!.length],
                     width: 14,
                     borderRadius: BorderRadius.circular(2),
                   ),
@@ -871,11 +885,13 @@ class _HBarView extends StatelessWidget {
   final bool currency;
   final bool signColors;
   final void Function(String category)? onTap;
+  final List<Color>? palette;
   const _HBarView({
     required this.bars,
     required this.currency,
     required this.signColors,
     this.onTap,
+    this.palette,
   });
 
   @override
@@ -907,7 +923,9 @@ class _HBarView extends StatelessWidget {
         ? (b.value < 0 ? AppColors.critical : AppColors.good)
         : b.selected
             ? t.brand
-            : t.series[0];
+            : palette == null
+                ? t.series[0]
+                : palette![i % palette!.length];
     return InkWell(
       onTap: onTap == null ? null : () => onTap!(b.name),
       borderRadius: BorderRadius.circular(6),

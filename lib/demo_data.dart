@@ -357,6 +357,22 @@ class DemoData {
       return {'dimension': dim, 'values': _namesFor(dim)};
     }
 
+    if (path == '/api/inventory/meta') {
+      return {
+        'dimensions': const [
+          {'key': 'brand', 'label': 'Brand'},
+          {'key': 'productGroup', 'label': 'Product Group'},
+          {'key': 'productManager', 'label': 'Product Manager'},
+          {'key': 'warehouse', 'label': 'Warehouse'},
+        ],
+        'measures': const [
+          {'key': 'value', 'label': 'Inventory Value', 'format': 'currency'},
+          {'key': 'qty', 'label': 'Quantity', 'format': 'number'},
+          {'key': 'skus', 'label': 'SKUs', 'format': 'number'},
+        ],
+      };
+    }
+
     if (path == '/api/inventory/kpis') {
       const ageLabels = ['0–30', '31–60', '61–90', '91–120', '121–180', '181–365', '365+'];
       final ageing = List.generate(ageLabels.length, (i) {
@@ -367,6 +383,7 @@ class DemoData {
       final slow = ageing.skip(5).fold<double>(0, (s, b) => s + (b['value'] as double));
       return {
         'value': total,
+        'qty': 194267,
         'skus': 1440,
         'ageing': ageing,
         'over90Value': over90,
@@ -380,10 +397,125 @@ class DemoData {
       final dim = _bodyStr(body, 'dimension', 'brand');
       final names = _namesFor(dim);
       final rows = names
-          .map((n) => {'name': n, 'value': _val(2e6, 9e6), 'qty': 50 + _rng.nextInt(400)})
+          .map((n) => {'name': n, 'value': _val(2e6, 9e6), 'qty': 50 + _rng.nextInt(400), 'skus': 8 + _rng.nextInt(120)})
           .toList()
         ..sort((a, b) => (b['value'] as double).compareTo(a['value'] as double));
       return {'dimension': dim, 'rows': rows};
+    }
+
+    if (path == '/api/inventory/ageing-breakdown') {
+      final dim = _bodyStr(body, 'dimension', 'brand');
+      const buckets = ['0–30', '31–60', '61–90', '91–120', '121–180', '181–365', '365+'];
+      final rows = _namesFor(dim).map((n) {
+        final values = [for (var i = 0; i < buckets.length; i++) _val(4e5, 3.6e6) / (1 + i * 0.6)];
+        return {'name': n, 'values': values, 'total': values.fold<double>(0, (a, b) => a + b)};
+      }).toList()
+        ..sort((a, b) => (b['total'] as double).compareTo(a['total'] as double));
+      return {'dimension': dim, 'buckets': buckets, 'rows': rows};
+    }
+
+    if (path == '/api/inventory/top-items') {
+      final rows = List.generate(20, (i) {
+        final brand = _brands[i % _brands.length];
+        return {
+          'item': '${brand.substring(0, min(3, brand.length)).toUpperCase()}ITM${(1000 + i * 7)}',
+          'description': '$brand ${_pgroups[i % _pgroups.length]} unit — enterprise SKU',
+          'brand': brand,
+          'value': _val(2e6, 60e6) / (1 + i * 0.7),
+          'qty': 4 + _rng.nextInt(900),
+          'skus': 1,
+        };
+      })..sort((a, b) => (b['value'] as double).compareTo(a['value'] as double));
+      return {'rows': rows};
+    }
+
+    if (path == '/api/inventory/slow-moving') {
+      final minDays = (body is Map && body['minDays'] is num) ? (body['minDays'] as num).toInt() : 180;
+      final rows = List.generate(12, (i) {
+        final brand = _brands[i % _brands.length];
+        return {
+          'item': '${brand.substring(0, min(3, brand.length)).toUpperCase()}SLW${(500 + i * 13)}',
+          'description': '$brand ${_pgroups[i % _pgroups.length]} — held stock, no recent movement',
+          'brand': brand,
+          'productManager': _pmanagers[i % _pmanagers.length],
+          'warehouse': _warehouses[i % _warehouses.length],
+          'qty': 3 + _rng.nextInt(1800),
+          'days': minDays + _rng.nextInt(260),
+          'value': _val(3e5, 7e6) / (1 + i * 0.35),
+        };
+      })..sort((a, b) => (b['value'] as double).compareTo(a['value'] as double));
+      return {'minDays': minDays, 'rows': rows, 'total': rows.length};
+    }
+
+    if (path == '/api/inventory/detail') {
+      final page = (body is Map && body['page'] is num) ? (body['page'] as num).toInt() : 1;
+      final sortBy = _bodyStr(body, 'sortBy', 'value');
+      final sortDir = _bodyStr(body, 'sortDir', 'desc');
+      final rng = Random(11 + page * 17);
+      final rows = List.generate(25, (i) {
+        final brand = _brands[i % _brands.length];
+        final qty = 1 + rng.nextInt(2400);
+        final avgCost = 900 + rng.nextDouble() * 320000;
+        return {
+          'item': '${brand.substring(0, min(3, brand.length)).toUpperCase()}${(10000 + i + (page - 1) * 25)}',
+          'description': '$brand ${_pgroups[i % _pgroups.length]} — ${qty}pc stock line',
+          'brand': brand,
+          'productGroup': _pgroups[i % _pgroups.length],
+          'productManager': _pmanagers[i % _pmanagers.length],
+          'unit': const ['PC', 'UNIT', 'SET', 'LOT'][i % 4],
+          'warehouse': _warehouses[i % _warehouses.length],
+          'qty': qty,
+          'avgCost': avgCost,
+          'days': 1 + rng.nextInt(720),
+          'value': qty * avgCost,
+        };
+      });
+      rows.sort((a, b) {
+        final av = a[sortBy];
+        final bv = b[sortBy];
+        final c = av is num && bv is num ? av.compareTo(bv) : '$av'.compareTo('$bv');
+        return sortDir == 'asc' ? c : -c;
+      });
+      return {'rows': rows, 'total': 5651, 'page': page, 'pageSize': 25};
+    }
+
+    if (path == '/api/inventory/export') {
+      const cols = ['item', 'description', 'brand', 'productGroup', 'productManager', 'unit', 'warehouse', 'qty', 'avgCost', 'days', 'value'];
+      final detail = resolve('/api/inventory/detail', {'page': 1}) as Map;
+      final lines = <String>[cols.join(',')];
+      for (final r in (detail['rows'] as List).cast<Map>()) {
+        lines.add(cols.map((c) {
+          final v = r[c];
+          final s = v is num ? v.toStringAsFixed(2) : '${v ?? ''}';
+          return s.contains(RegExp(r'[",\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+        }).join(','));
+      }
+      return lines.join('\n');
+    }
+
+    if (path == '/api/inventory/insights') {
+      return {
+        'insights': const [
+          {
+            'id': 'ageing',
+            'severity': 'warning',
+            'title': 'A third of the value is over 90 days old',
+            'detail': 'Ageing stock is concentrated in a handful of brands — the 181–365 bucket alone holds more than the last two months of intake.',
+          },
+          {
+            'id': 'concentration',
+            'severity': 'info',
+            'title': 'Stock value is top-heavy',
+            'detail': 'The leading brand carries about half of the inventory value; the tail below the top five is immaterial by comparison.',
+          },
+          {
+            'id': 'dead-stock',
+            'severity': 'serious',
+            'title': 'Dead stock has not moved in a year',
+            'detail': 'Items with no movement in 365 days still tie up working capital and are worth reviewing for write-down or clearance.',
+          },
+        ],
+      };
     }
 
     if (path.startsWith('/api/inventory/options/')) {
