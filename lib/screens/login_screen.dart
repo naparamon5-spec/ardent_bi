@@ -65,31 +65,66 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                color: t.chrome,
-                padding: EdgeInsets.fromLTRB(24, topPadding + 56, 24, 64),
+                padding: EdgeInsets.fromLTRB(24, topPadding + 60, 24, 72),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppColors.chromeHover, AppColors.chromeBg],
+                  ),
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(32),
+                  ),
+                ),
                 child: Column(
                   children: [
-                    Image.asset('assets/logo.png', width: 64, height: 64),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Ardent BI',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.chromeText,
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: AppColors.chromeBorder),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: Image.asset('assets/logo.png', width: 52, height: 52),
+                    ),
+                    const SizedBox(height: 20),
+                    RichText(
+                      text: const TextSpan(
+                        style: TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                          color: AppColors.chromeText,
+                        ),
+                        children: [
+                          TextSpan(text: 'Ardent'),
+                          TextSpan(
+                            text: 'BI',
+                            style: TextStyle(color: AppColors.brand),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     const Text(
                       'BUSINESS INTELLIGENCE',
                       style: TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w700,
-                        letterSpacing: 1.6,
+                        letterSpacing: 2.0,
                         color: AppColors.chromeTextMuted,
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     Text(
                       'Sign in to your analytics workspace',
                       style: TextStyle(
@@ -101,7 +136,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               Transform.translate(
-                offset: const Offset(0, -36),
+                offset: const Offset(0, -44),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Center(
@@ -113,6 +148,23 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              Text(
+                                'Sign in',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: t.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Access your dashboards and reports',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: t.textMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 18),
                               if (_error != null) ...[
                                 Container(
                                   padding: const EdgeInsets.all(12),
