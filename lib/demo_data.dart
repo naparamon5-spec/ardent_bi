@@ -25,6 +25,14 @@ class DemoData {
 
   static double _val(double base, double spread) => base + _rng.nextDouble() * spread;
 
+  /// A job-order date inside the current year, so accrued rows sit in the
+  /// module's default year-to-date window.
+  static String _accruedDate(int i) {
+    final now = DateTime.now();
+    final d = DateTime(now.year, 1 + i % max(1, now.month), 1 + i * 3 % 28);
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
   static Map<String, dynamic> _agg(double sales) {
     final gp = sales * (0.14 + _rng.nextDouble() * 0.12);
     final invoices = (sales / 380000).round() + 3;
@@ -574,10 +582,26 @@ class DemoData {
     }
 
     // ── Accrued Incidentals ───────────────────────────────────────────
+    if (path == '/api/accrued/meta') {
+      return {
+        'dimensions': const [
+          {'key': 'type', 'label': 'Type'},
+          {'key': 'brand', 'label': 'Brand'},
+          {'key': 'customer', 'label': 'Customer'},
+          {'key': 'salesman', 'label': 'Salesman'},
+        ],
+        'measures': const [
+          {'key': 'amount', 'label': 'Incidental Amount', 'format': 'currency'},
+          {'key': 'joAmount', 'label': 'Job Order Value', 'format': 'currency'},
+          {'key': 'lines', 'label': 'Charge Lines', 'format': 'number'},
+        ],
+      };
+    }
     if (path == '/api/accrued/kpis') {
       final amount = _val(6e6, 4e6);
       final joAmount = amount / (0.06 + _rng.nextDouble() * 0.04);
       final jobOrders = 480 + _rng.nextInt(200);
+      final accruedTotal = amount * (0.02 + _rng.nextDouble() * 0.03);
       return {
         'amount': amount,
         'lines': 2400 + _rng.nextInt(600),
@@ -585,6 +609,8 @@ class DemoData {
         'joAmount': joAmount,
         'incidentalRate': amount / joAmount * 100,
         'avgPerJobOrder': amount / jobOrders,
+        'accruedTotal': accruedTotal,
+        'openBalance': accruedTotal * (0.6 + _rng.nextDouble() * 0.3),
         'currency': 'PHP',
       };
     }
@@ -592,18 +618,105 @@ class DemoData {
       final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'];
       final points = months.map((m) {
         final amount = _val(4e5, 5e5);
-        return {'label': m, 'amount': amount, 'rate': 4 + _rng.nextDouble() * 6, 'lines': 200 + _rng.nextInt(120)};
+        final rate = 1 + _rng.nextDouble() * 8;
+        return {
+          'label': m,
+          'amount': amount,
+          'joAmount': amount / (rate / 100),
+          'rate': rate,
+          'lines': 200 + _rng.nextInt(120),
+        };
       }).toList();
       return {'points': points};
     }
     if (path == '/api/accrued/breakdown') {
-      final dim = _bodyStr(body, 'dimension', 'brand');
+      final dim = _bodyStr(body, 'dimension', 'type');
       final names = _namesFor(dim);
       final rows = names
-          .map((n) => {'name': n, 'amount': _val(2e5, 1.2e6), 'lines': 20 + _rng.nextInt(200)})
+          .map((n) => {'name': n, 'amount': _val(2e5, 1.2e6), 'joAmount': _val(8e6, 40e6), 'lines': 20 + _rng.nextInt(200)})
           .toList()
         ..sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
       return {'dimension': dim, 'rows': rows};
+    }
+    if (path == '/api/accrued/charge-type-mix') {
+      final dim = _bodyStr(body, 'dimension', 'type');
+      final chargeTypes = _namesFor('type');
+      final rows = _namesFor(dim).map((n) {
+        final values = [for (var i = 0; i < chargeTypes.length; i++) _val(4e4, 9e5) / (1 + i * 0.5)];
+        return {'name': n, 'values': values, 'total': values.fold<double>(0, (a, b) => a + b)};
+      }).toList()
+        ..sort((a, b) => (b['total'] as double).compareTo(a['total'] as double));
+      return {'dimension': dim, 'chargeTypes': chargeTypes, 'rows': rows};
+    }
+    if (path == '/api/accrued/top-job-orders') {
+      final rows = List.generate(15, (i) {
+        final orderValue = _val(8e6, 400e6) / (1 + i * 0.3);
+        final amount = orderValue * (0.02 + _rng.nextDouble() * 0.2);
+        return {
+          'jobOrder': '${130000 + i * 137}',
+          'date': _accruedDate(i),
+          'customer': _customers[i % _customers.length],
+          'salesman': _salesmen[i % _salesmen.length],
+          'orderValue': orderValue,
+          'amount': amount,
+          'rate': amount / orderValue * 100,
+          'lines': 1 + _rng.nextInt(8),
+        };
+      })..sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
+      return {'rows': rows};
+    }
+    if (path == '/api/accrued/detail') {
+      final page = (body is Map && body['page'] is num) ? (body['page'] as num).toInt() : 1;
+      final sortBy = _bodyStr(body, 'sortBy', 'amount');
+      final sortDir = _bodyStr(body, 'sortDir', 'desc');
+      final rng = Random(23 + page * 19);
+      final types = _namesFor('type');
+      final rows = List.generate(25, (i) {
+        final orderValue = 4e6 + rng.nextDouble() * 700e6;
+        final amount = orderValue * (0.005 + rng.nextDouble() * 0.06);
+        // Only the fund types run through the accrual ledger; the rest carry
+        // zeroes in those columns, as the extract does.
+        final onLedger = i % 3 == 0;
+        final accrued = onLedger ? amount * (0.02 + rng.nextDouble() * 0.05) : 0.0;
+        final applied = onLedger ? accrued * rng.nextDouble() : 0.0;
+        return {
+          'jobOrder': '${129000 + i + (page - 1) * 25}',
+          'date': _accruedDate(i + page * 3),
+          'customer': _customers[i % _customers.length],
+          'brand': _brands[i % _brands.length],
+          'type': types[i % types.length],
+          'description': '${types[i % types.length]} — ${_brands[i % _brands.length]} booking',
+          'orderValue': orderValue,
+          'amount': amount,
+          'accrued': accrued,
+          'applied': applied,
+          'available': accrued - applied,
+          'openBalance': accrued - applied,
+        };
+      });
+      rows.sort((a, b) {
+        final av = a[sortBy];
+        final bv = b[sortBy];
+        final c = av is num && bv is num ? av.compareTo(bv) : '$av'.compareTo('$bv');
+        return sortDir == 'asc' ? c : -c;
+      });
+      return {'rows': rows, 'total': 3689, 'page': page, 'pageSize': 25};
+    }
+    if (path == '/api/accrued/export') {
+      const cols = [
+        'jobOrder', 'date', 'customer', 'brand', 'type', 'description',
+        'orderValue', 'amount', 'accrued', 'applied', 'available', 'openBalance',
+      ];
+      final detail = resolve('/api/accrued/detail', {'page': 1}) as Map;
+      final lines = <String>[cols.join(',')];
+      for (final r in (detail['rows'] as List).cast<Map>()) {
+        lines.add(cols.map((c) {
+          final v = r[c];
+          final s = v is num ? v.toStringAsFixed(2) : '${v ?? ''}';
+          return s.contains(RegExp(r'[",\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+        }).join(','));
+      }
+      return lines.join('\n');
     }
     if (path.startsWith('/api/accrued/options/')) {
       final dim = path.split('/').last;
@@ -684,7 +797,11 @@ class DemoData {
       case 'warehouse':
         return List.of(_warehouses);
       case 'type':
-        return const ['Freight', 'Handling', 'Installation', 'Customs', 'Insurance', 'Storage'];
+        return const [
+          'Deal Fund', 'MPF-Vendor Fund', 'Vendor Fund', 'MPF-Partner Development', 'TPC',
+          'SPF-Partner Development', 'DST Fund', 'Cost of Money', 'MPF-Warfund', 'SPF-Warfund',
+          'MPF-Services', 'Insurances',
+        ];
       default:
         return List.of(_brands);
     }
