@@ -1,16 +1,26 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+
 import '../api.dart';
+import '../format.dart';
 import '../state/auth_state.dart';
 import '../state/filter_state.dart';
+import '../theme.dart';
 import '../widgets/bi_chart.dart';
 import '../widgets/common.dart';
 import '../widgets/filter_sheet.dart';
 import '../widgets/kpi_tile.dart';
 
-/// Accrued Incidentals — charges booked against job orders. The headline is the
-/// incidental rate (cost per peso of job-order value), not the raw total.
+/// Accrued Incidentals — the mobile counterpart of `web/app/pages/accrued.vue`:
+/// the break-down-by / measure bar, the five headline KPIs, then incidental
+/// cost by dimension, the rate by month, the charge type mix, job order value
+/// against incidental cost, the top job orders and the charge detail, in the
+/// web's order.
 class AccruedScreen extends StatefulWidget {
   const AccruedScreen({super.key});
   @override
@@ -23,15 +33,45 @@ class _AccruedScreenState extends State<AccruedScreen> {
 
   bool _loading = true;
   String? _error;
+
+  List<Map<String, dynamic>> _dimOptions = _fallbackDims.map((e) => Map<String, dynamic>.from(e)).toList();
+  List<Map<String, dynamic>> _measureOptions = _fallbackMeasures.map((e) => Map<String, dynamic>.from(e)).toList();
+
   Map<String, dynamic>? _kpis;
-  List<dynamic> _trend = [];
   Map<String, dynamic>? _breakdown;
+  Map<String, dynamic>? _chargeMix;
+  List<dynamic> _trend = [];
+  List<dynamic> _topJobOrders = [];
+
+  bool _detailLoading = true;
+  List<dynamic> _detail = [];
+  int _detailTotal = 0;
+
+  String _dimension = 'type';
+  String _measure = 'amount';
+  int _page = 1;
+  String _sortBy = 'amount';
+  String _sortDir = 'desc';
+
+  static const _fallbackDims = [
+    {'key': 'type', 'label': 'Type'},
+    {'key': 'brand', 'label': 'Brand'},
+    {'key': 'customer', 'label': 'Customer'},
+    {'key': 'salesman', 'label': 'Salesman'},
+  ];
+  static const _fallbackMeasures = [
+    {'key': 'amount', 'label': 'Incidental Amount', 'format': 'currency'},
+    {'key': 'joAmount', 'label': 'Job Order Value', 'format': 'currency'},
+    {'key': 'lines', 'label': 'Charge Lines', 'format': 'number'},
+  ];
+  static const _pageSize = 25;
 
   @override
   void initState() {
     super.initState();
     _filters = context.read<FilterState>();
     _filters.addListener(_onFilters);
+    _loadMeta();
     _load();
   }
 
@@ -44,7 +84,48 @@ class _AccruedScreenState extends State<AccruedScreen> {
 
   void _onFilters() {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), _load);
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      setState(() => _page = 1);
+      _load();
+    });
+  }
+
+  String get _dimLabel => _labelFor(_dimOptions, _dimension);
+  Map<String, dynamic> get _measureMeta =>
+      _measureOptions.firstWhere((m) => m['key'] == _measure, orElse: () => _fallbackMeasures[0]);
+  String get _measureLabel => (_measureMeta['label'] ?? 'Incidental Amount').toString();
+  bool get _measureIsCurrency => (_measureMeta['format'] ?? 'currency') == 'currency';
+
+  static String _labelFor(List<Map<String, dynamic>> opts, String key) =>
+      (opts.firstWhere((d) => d['key'] == key, orElse: () => {'label': key})['label'] ?? key).toString();
+
+  /// Accrued filters on the job-order date; opens on the year to date.
+  Map<String, dynamic> get _body => {'filters': _filters.payload('accrued')};
+
+  Future<void> _loadMeta() async {
+    try {
+      final res = await context.read<AuthState>().client.get('/api/accrued/meta') as Map;
+      if (!mounted) return;
+      setState(() {
+        final dims = ((res['dimensions'] as List?) ?? const []).cast<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        final measures = ((res['measures'] as List?) ?? const []).cast<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        if (dims.isNotEmpty) _dimOptions = dims;
+        if (measures.isNotEmpty) _measureOptions = measures;
+      });
+    } catch (_) {
+      // Meta is a nicety; the fallbacks keep the page usable offline.
+    }
+  }
+
+  /// A section the API may not serve should leave the rest of the page
+  /// standing, so each request resolves to null instead of failing the batch.
+  Future<Map<String, dynamic>?> _tryPost(String path, Object body) async {
+    try {
+      final res = await context.read<AuthState>().client.post(path, body);
+      return res is Map ? Map<String, dynamic>.from(res) : null;
+    } on ApiException {
+      return null;
+    }
   }
 
   Future<void> _load() async {
@@ -54,19 +135,22 @@ class _AccruedScreenState extends State<AccruedScreen> {
       _error = null;
     });
     final api = context.read<AuthState>().client;
-    // Accrued filters on the job-order date; opens on the year to date.
-    final body = {'filters': _filters.payload('accrued')};
+    _loadDetail();
     try {
-      final results = await Future.wait([
-        api.post('/api/accrued/kpis', body),
-        api.post('/api/accrued/timeseries', body),
-        api.post('/api/accrued/breakdown', {...body, 'dimension': 'brand', 'measure': 'amount', 'limit': 12}),
+      final kpis = await api.post('/api/accrued/kpis', _body) as Map<String, dynamic>;
+      final rest = await Future.wait([
+        _tryPost('/api/accrued/timeseries', _body),
+        _tryPost('/api/accrued/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 15}),
+        _tryPost('/api/accrued/charge-type-mix', {..._body, 'dimension': _dimension, 'limit': 12}),
+        _tryPost('/api/accrued/top-job-orders', {..._body, 'limit': 15}),
       ]);
       if (!mounted) return;
       setState(() {
-        _kpis = results[0] as Map<String, dynamic>;
-        _trend = (results[1] as Map)['points'] as List? ?? [];
-        _breakdown = results[2] as Map<String, dynamic>;
+        _kpis = kpis;
+        _trend = (rest[0]?['points'] as List?) ?? const [];
+        _breakdown = rest[1];
+        _chargeMix = rest[2];
+        _topJobOrders = (rest[3]?['rows'] as List?) ?? const [];
         _loading = false;
       });
     } on ApiException catch (e) {
@@ -78,45 +162,539 @@ class _AccruedScreenState extends State<AccruedScreen> {
     }
   }
 
+  Future<void> _loadDetail() async {
+    if (!mounted) return;
+    setState(() => _detailLoading = true);
+    final res = await _tryPost('/api/accrued/detail', {
+      ..._body,
+      'page': _page,
+      'pageSize': _pageSize,
+      'sortBy': _sortBy,
+      'sortDir': _sortDir,
+    });
+    if (!mounted) return;
+    setState(() {
+      _detail = (res?['rows'] as List?) ?? const [];
+      _detailTotal = (res?['total'] as num?)?.toInt() ?? 0;
+      _detailLoading = false;
+    });
+  }
+
+  void _sortDetail(String key) {
+    setState(() {
+      if (_sortBy == key) {
+        _sortDir = _sortDir == 'asc' ? 'desc' : 'asc';
+      } else {
+        _sortBy = key;
+        _sortDir = 'desc';
+      }
+      _page = 1;
+    });
+    _loadDetail();
+  }
+
+  Future<void> _share(String name, String csv) => SharePlus.instance.share(ShareParams(
+        files: [XFile.fromData(utf8.encode(csv), mimeType: 'text/csv', name: name)],
+        subject: name,
+      ));
+
+  String get _stamp => DateTime.now().toIso8601String().substring(0, 10);
+
+  Future<void> _exportDetail() async {
+    try {
+      final csv = await context.read<AuthState>().client
+          .postText('/api/accrued/export', {..._body, 'limit': 20000});
+      await _share('ardent-accrued-charges-$_stamp.csv', csv);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  /// The top job orders are already in hand and capped at what the card shows,
+  /// so the CSV is written locally rather than asking for a second export.
+  Future<void> _exportTopJobOrders() async {
+    const cols = ['jobOrder', 'date', 'customer', 'salesman', 'orderValue', 'amount', 'rate', 'lines'];
+    await _share('ardent-accrued-job-orders-$_stamp.csv', _csv(cols, _topJobOrders.cast<Map>()));
+  }
+
+  static String _csv(List<String> cols, List<Map> rows) {
+    final lines = <String>[cols.join(',')];
+    for (final r in rows) {
+      lines.add(cols.map((c) {
+        final v = r[c];
+        final s = v is num ? v.toString() : '${v ?? ''}';
+        return s.contains(RegExp(r'[",\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+      }).join(','));
+    }
+    return lines.join('\n');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final t = BiTokens.of(context);
     final filters = context.watch<FilterState>();
     final k = _kpis ?? const {};
-    final rows = (_breakdown?['rows'] as List?) ?? const [];
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Accrued Incidentals'),
-        actions: [FilterButton(count: filters.activeCount('accrued'), onTap: () => showFilterSheet(context, FilterModule.accrued))],
+        actions: [
+          FilterButton(count: filters.activeCount('accrued'), onTap: () => showFilterSheet(context, FilterModule.accrued))
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
           children: [
             if (_error != null) ErrorBanner(_error!),
+            _filterBar(t, filters),
+            const SizedBox(height: 12),
             KpiGrid(tiles: [
-              KpiTile(label: 'Incidental cost', value: k['amount'], format: 'currency', loading: _loading),
-              KpiTile(label: 'Incidental rate', value: k['incidentalRate'], format: 'percent', loading: _loading, sub: 'per ₱ of job-order value'),
-              KpiTile(label: 'Job orders', value: k['jobOrders'], format: 'number', loading: _loading),
-              KpiTile(label: 'Avg per job order', value: k['avgPerJobOrder'], format: 'currency', loading: _loading),
+              KpiTile(
+                  label: 'Incidental cost',
+                  value: k['amount'],
+                  format: 'currency',
+                  loading: _loading,
+                  sub: '${Fmt.number(k['lines'] ?? 0)} charge lines'),
+              KpiTile(
+                  label: 'Job order value',
+                  value: k['joAmount'],
+                  format: 'currency',
+                  loading: _loading,
+                  sub: '${Fmt.number(k['jobOrders'] ?? 0)} job orders'),
+              KpiTile(
+                  label: 'Incidental rate',
+                  value: k['incidentalRate'],
+                  format: 'percent',
+                  loading: _loading,
+                  sub: 'Of job order value'),
+              KpiTile(
+                  label: 'Average per job order',
+                  value: k['avgPerJobOrder'],
+                  format: 'currency',
+                  loading: _loading),
+              KpiTile(
+                  label: 'Open accrual balance',
+                  value: k['openBalance'],
+                  format: 'currency',
+                  loading: _loading,
+                  sub: '${Fmt.money(k['accruedTotal'] ?? 0)} accrued in total'),
             ]),
             const SizedBox(height: 16),
             BiChartCard(
-              title: 'Incidental cost by month',
-              subtitle: 'Charges booked against job orders',
-              categories: _trend.map((p) => (p['label'] ?? '').toString()).toList(),
-              series: [SeriesSpec('Incidental cost', _trend.map((p) => (p['amount'] as num?)?.toDouble() ?? 0).toList())],
-              height: 220,
+              title: 'Incidental cost by $_dimLabel',
+              subtitle: 'Tap a bar to add it to the filter',
+              currency: _measureIsCurrency,
+              bars: ((_breakdown?['rows'] as List?) ?? const []).cast<Map>().map((r) {
+                final name = (r['name'] ?? '—').toString();
+                final v = r[_measure] ?? r['amount'];
+                return BarDatum(name, v is num ? v.toDouble() : 0,
+                    selected: filters.dim('accrued', _dimension).contains(name));
+              }).toList(),
+              onBarTap: (c) => filters.toggleDim('accrued', _dimension, c),
+              types: const [BiChartType.bar, BiChartType.column, BiChartType.donut, BiChartType.treemap],
             ),
             const SizedBox(height: 16),
             BiChartCard(
-              title: 'Incidental cost by brand',
-              bars: rows.map((r) => BarDatum((r['name'] ?? '—').toString(), (r['amount'] as num?)?.toDouble() ?? 0)).toList(),
+              title: 'Incidental rate by month',
+              subtitle: 'Incidental cost as a share of the job order value raised that month',
+              currency: false,
+              percent: true,
+              categories: _trend.map((p) => (p['label'] ?? '').toString()).toList(),
+              series: [
+                SeriesSpec('Incidental rate', _trend.map((p) => (p['rate'] as num?)?.toDouble() ?? 0).toList()),
+              ],
+              height: 220,
+              initialType: BiChartType.line,
+              types: const [BiChartType.line, BiChartType.column, BiChartType.area],
             ),
+            const SizedBox(height: 16),
+            _chargeTypeMix(),
+            const SizedBox(height: 16),
+            BiChartCard(
+              title: 'Job order value and incidental cost by month',
+              subtitle: 'Both series are currency, so they share one axis — incidental cost sits low against order '
+                  'value by design, and the rate panel above is where the comparison is read',
+              categories: _trend.map((p) => (p['label'] ?? '').toString()).toList(),
+              series: [
+                SeriesSpec('Job order value', _trend.map((p) => (p['joAmount'] as num?)?.toDouble() ?? 0).toList()),
+                SeriesSpec('Incidental cost', _trend.map((p) => (p['amount'] as num?)?.toDouble() ?? 0).toList()),
+              ],
+              height: 220,
+              initialType: BiChartType.column,
+              types: const [BiChartType.column, BiChartType.line, BiChartType.area, BiChartType.stacked],
+            ),
+            const SizedBox(height: 16),
+            _topJobOrdersCard(t),
+            const SizedBox(height: 16),
+            _detailCard(t),
+            const SizedBox(height: 24),
           ],
         ),
       ),
     );
   }
+
+  // ── Filter bar ──────────────────────────────────────────────────────
+
+  Widget _filterBar(BiTokens t, FilterState filters) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Expanded(
+              child: _dropdown(t, 'Break down by', _dimOptions.map((e) => e['label'].toString()).toList(), _dimLabel,
+                  (label) {
+                setState(() => _dimension = _dimOptions.firstWhere((e) => e['label'] == label)['key'].toString());
+                _load();
+              }),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _dropdown(t, 'Measure', _measureOptions.map((e) => e['label'].toString()).toList(), _measureLabel,
+                  (label) {
+                setState(() => _measure = _measureOptions.firstWhere((e) => e['label'] == label)['key'].toString());
+                _load();
+              }),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          Text(
+            'Every charge is read against the job order it was booked on. The accrual columns behind the amount '
+            '(accrued, applied, available, open balance) are only carried for the fund types that run through the '
+            'accrual ledger, so most lines show zero there — that is the extract, not a gap in the filter.',
+            style: TextStyle(fontSize: 11.5, height: 1.35, color: t.textMuted),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _barButton(t,
+                icon: Icons.filter_list_outlined,
+                label: 'Advanced filters',
+                badge: filters.activeCount('accrued'),
+                onTap: () => showFilterSheet(context, FilterModule.accrued)),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _eyebrow(BiTokens t, String s) => Text(s.toUpperCase(),
+      style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted));
+
+  Widget _dropdown(BiTokens t, String label, List<String> items, String value, ValueChanged<String> onChanged) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _eyebrow(t, label),
+      const SizedBox(height: 6),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: t.gridline),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            isExpanded: true,
+            value: items.contains(value) ? value : (items.isEmpty ? null : items.first),
+            style: TextStyle(fontSize: 13, color: t.textPrimary),
+            iconEnabledColor: t.textSecondary,
+            items: [
+              for (final i in items)
+                DropdownMenuItem(
+                  value: i,
+                  child: Text(i,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: t.textPrimary)),
+                ),
+            ],
+            onChanged: (v) {
+              if (v != null) onChanged(v);
+            },
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _barButton(BiTokens t,
+      {required IconData icon, required String label, int badge = 0, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: t.gridline),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: t.textSecondary),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textPrimary)),
+          if (badge > 0) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(color: t.brandSoft, borderRadius: BorderRadius.circular(999)),
+              child: Text('$badge', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: t.brand)),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  // ── Charge type mix ─────────────────────────────────────────────────
+
+  /// One bar per dimension member, split by charge type — a bar that is mostly
+  /// one colour is carrying one kind of cost.
+  Widget _chargeTypeMix() {
+    final rows = ((_chargeMix?['rows'] as List?) ?? const []).cast<Map>();
+    final types = ((_chargeMix?['chargeTypes'] as List?) ?? const []).map((e) => (e ?? '').toString()).toList();
+    return BiChartCard(
+      title: 'Charge type mix by $_dimLabel',
+      subtitle: "Each bar is one member's incidental cost split by charge type",
+      categories: rows.map((r) => (r['name'] ?? '—').toString()).toList(),
+      series: [
+        for (var i = 0; i < types.length; i++)
+          SeriesSpec(
+            types[i],
+            rows.map((r) {
+              final values = (r['values'] as List?) ?? const [];
+              return i < values.length ? ((values[i] as num?)?.toDouble() ?? 0) : 0.0;
+            }).toList(),
+          ),
+      ],
+      height: 240,
+      initialType: BiChartType.stacked,
+      types: const [BiChartType.stacked, BiChartType.column],
+    );
+  }
+
+  // ── Top job orders ──────────────────────────────────────────────────
+
+  static const _jobOrderCols = [
+    ('jobOrder', 'Job order', 88.0, false),
+    ('date', 'Date', 92.0, false),
+    ('customer', 'Customer', 180.0, false),
+    ('salesman', 'Salesman', 150.0, false),
+    ('orderValue', 'Order value', 96.0, true),
+    ('amount', 'Incidental cost', 106.0, true),
+    ('rate', 'Rate', 62.0, true),
+    ('lines', 'Lines', 54.0, true),
+  ];
+
+  Widget _topJobOrdersCard(BiTokens t) {
+    final rows = _topJobOrders.cast<Map>();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text('Job orders carrying the most incidental cost',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: t.textPrimary)),
+            ),
+            const SizedBox(width: 8),
+            Text('${Fmt.number(rows.length)} rows', style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+            const SizedBox(width: 8),
+            _exportButton(t, rows.isEmpty ? null : _exportTopJobOrders),
+          ]),
+          const SizedBox(height: 12),
+          if (rows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                  child: Text('No job orders for this selection', style: TextStyle(color: t.textMuted, fontSize: 12))),
+            )
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Table(
+                columnWidths: {for (var i = 0; i < _jobOrderCols.length; i++) i: FixedColumnWidth(_jobOrderCols[i].$3)},
+                children: [
+                  TableRow(children: [for (final c in _jobOrderCols) _plainHeader(t, c.$2, c.$4)]),
+                  for (final r in rows)
+                    TableRow(children: [
+                      _cell(t, '${r['jobOrder'] ?? '—'}', maxLines: 1, bold: true),
+                      _cell(t, Fmt.date(r['date']), maxLines: 1),
+                      _cell(t, '${r['customer'] ?? '—'}'),
+                      _cell(t, '${r['salesman'] ?? '—'}'),
+                      _cell(t, Fmt.money(r['orderValue']), numeric: true, maxLines: 1),
+                      _cell(t, Fmt.money(r['amount']), numeric: true, maxLines: 1, bold: true),
+                      _cell(t, Fmt.percent(r['rate']), numeric: true, maxLines: 1),
+                      _cell(t, Fmt.number(r['lines']), numeric: true, maxLines: 1),
+                    ]),
+                ],
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  // ── Charge detail ───────────────────────────────────────────────────
+
+  static const _detailCols = [
+    ('jobOrder', 'Job order', 88.0, false),
+    ('date', 'Date', 92.0, false),
+    ('customer', 'Customer', 180.0, false),
+    ('brand', 'Brand', 96.0, false),
+    ('type', 'Type', 130.0, false),
+    ('description', 'Description', 200.0, false),
+    ('orderValue', 'Order value', 96.0, true),
+    ('amount', 'Amount', 96.0, true),
+    ('accrued', 'Accrued', 90.0, true),
+    ('applied', 'Applied', 90.0, true),
+    ('available', 'Available', 90.0, true),
+    ('openBalance', 'Open balance', 100.0, true),
+  ];
+
+  Widget _detailCard(BiTokens t) {
+    final pages = max(1, (_detailTotal / _pageSize).ceil());
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text('Charge detail', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: t.textPrimary)),
+            const Spacer(),
+            Text('${Fmt.number(_detailTotal)} rows', style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+            const SizedBox(width: 8),
+            _exportButton(t, _exportDetail),
+          ]),
+          const SizedBox(height: 12),
+          if (_detail.isEmpty && !_detailLoading)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child:
+                  Center(child: Text('No charges for this selection', style: TextStyle(color: t.textMuted, fontSize: 12))),
+            )
+          else
+            Opacity(
+              opacity: _detailLoading ? 0.4 : 1,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Table(
+                  columnWidths: {for (var i = 0; i < _detailCols.length; i++) i: FixedColumnWidth(_detailCols[i].$3)},
+                  children: [
+                    TableRow(children: [for (final c in _detailCols) _sortHeader(t, c.$1, c.$2, c.$4)]),
+                    for (final r in _detail.cast<Map>())
+                      TableRow(children: [
+                        _cell(t, '${r['jobOrder'] ?? '—'}', maxLines: 1, bold: true),
+                        _cell(t, Fmt.date(r['date']), maxLines: 1),
+                        _cell(t, '${r['customer'] ?? '—'}'),
+                        _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
+                        _cell(t, '${r['type'] ?? '—'}', maxLines: 1),
+                        _cell(t, '${r['description'] ?? '—'}'),
+                        _cell(t, Fmt.money(r['orderValue']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['amount']), numeric: true, maxLines: 1, bold: true),
+                        _cell(t, Fmt.money(r['accrued']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['applied']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['available']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['openBalance']), numeric: true, maxLines: 1),
+                      ]),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: _page > 1
+                  ? () {
+                      setState(() => _page--);
+                      _loadDetail();
+                    }
+                  : null,
+              icon: const Icon(Icons.chevron_left, size: 18),
+            ),
+            Text('Page $_page of $pages', style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: _page < pages
+                  ? () {
+                      setState(() => _page++);
+                      _loadDetail();
+                    }
+                  : null,
+              icon: const Icon(Icons.chevron_right, size: 18),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  // ── Table plumbing ──────────────────────────────────────────────────
+
+  Widget _exportButton(BiTokens t, VoidCallback? onTap) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: t.gridline)),
+          child: Text('Export CSV',
+              style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600, color: onTap == null ? t.textMuted : t.textPrimary)),
+        ),
+      );
+
+  Widget _plainHeader(BiTokens t, String label, bool numeric) => Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
+        child: Text(label.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: numeric ? TextAlign.right : TextAlign.left,
+            style: TextStyle(fontSize: 10, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted)),
+      );
+
+  Widget _sortHeader(BiTokens t, String key, String label, bool numeric) {
+    final sorted = _sortBy == key;
+    return InkWell(
+      onTap: () => _sortDetail(key),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
+        child: Row(
+          mainAxisAlignment: numeric ? MainAxisAlignment.end : MainAxisAlignment.start,
+          children: [
+            Flexible(
+              child: Text(label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: numeric ? TextAlign.right : TextAlign.left,
+                  style: TextStyle(
+                      fontSize: 10,
+                      letterSpacing: 0.5,
+                      fontWeight: FontWeight.w600,
+                      color: sorted ? t.brand : t.textMuted)),
+            ),
+            if (sorted) Icon(_sortDir == 'asc' ? Icons.arrow_upward : Icons.arrow_downward, size: 11, color: t.brand),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cell(BiTokens t, String text, {bool numeric = false, int maxLines = 2, bool bold = false, Color? color}) =>
+      Container(
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
+        child: Text(text,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            textAlign: numeric ? TextAlign.right : TextAlign.left,
+            style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+                color: color ?? (bold ? t.textPrimary : t.textSecondary))),
+      );
 }
