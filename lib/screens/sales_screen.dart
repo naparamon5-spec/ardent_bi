@@ -756,7 +756,7 @@ class _SalesScreenState extends State<SalesScreen> {
     ('item', 'Item', 100.0, false),
     ('qty', 'Qty', 44.0, true),
     ('sales', 'Net sales', 84.0, true),
-    ('grossProfit', 'Gross profit', 84.0, true),
+    ('grossProfit', 'Gross profit', 104.0, true),
     ('gmPercent', 'GM %', 56.0, true),
   ];
 
@@ -837,14 +837,20 @@ class _SalesScreenState extends State<SalesScreen> {
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (numeric) const Spacer(),
-          Text(label.toUpperCase(),
-              style: TextStyle(fontSize: 10, letterSpacing: 0.5, fontWeight: FontWeight.w600,
-                  color: sorted ? t.brand : t.textMuted)),
-          if (sorted) Icon(_sortDir == 'asc' ? Icons.arrow_upward : Icons.arrow_downward, size: 11, color: t.brand),
-          if (!numeric) const Spacer(),
-        ]),
+        child: Row(
+          mainAxisAlignment: numeric ? MainAxisAlignment.end : MainAxisAlignment.start,
+          children: [
+            Flexible(
+              child: Text(label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: numeric ? TextAlign.right : TextAlign.left,
+                  style: TextStyle(fontSize: 10, letterSpacing: 0.5, fontWeight: FontWeight.w600,
+                      color: sorted ? t.brand : t.textMuted)),
+            ),
+            if (sorted) Icon(_sortDir == 'asc' ? Icons.arrow_upward : Icons.arrow_downward, size: 11, color: t.brand),
+          ],
+        ),
       ),
     );
   }
