@@ -243,7 +243,13 @@ class _SalesScreenState extends State<SalesScreen> {
     final d = (_kpis?['delta'] as Map?) ?? const {};
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Sales')),
+      appBar: AppBar(
+        title: const Text('Sales'),
+        actions: [
+          InsightsButton(count: _insights.length, onTap: () => showInsightsSheet(context, _insights)),
+          FilterButton(count: filters.activeSalesCount, onTap: () => showSalesFilterSheet(context)),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
@@ -261,15 +267,6 @@ class _SalesScreenState extends State<SalesScreen> {
               KpiTile(label: 'Avg invoice', value: k['avgInvoice'], format: 'currency', loading: _loading,
                   sub: '${Fmt.number(k['invoices'] ?? 0)} invoices'),
             ]),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: _barButton(t,
-                  icon: Icons.lightbulb_outline,
-                  label: 'Insights',
-                  badge: _insights.length,
-                  onTap: () => showInsightsSheet(context, _insights)),
-            ),
             const SizedBox(height: 12),
             BiChartCard(
               title: 'Trend by $_grain',
@@ -350,15 +347,6 @@ class _SalesScreenState extends State<SalesScreen> {
                 ),
               ),
           ]),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: _barButton(t,
-                icon: Icons.filter_list_outlined,
-                label: 'Advanced filters',
-                badge: filters.activeSalesCount,
-                onTap: () => showSalesFilterSheet(context)),
-          ),
         ]),
       ),
     );
@@ -420,35 +408,6 @@ class _SalesScreenState extends State<SalesScreen> {
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 12, fontWeight: FontWeight.w600, color: active ? t.brandInk : t.textSecondary)),
-      ),
-    );
-  }
-
-  Widget _barButton(BiTokens t,
-      {required IconData icon, required String label, int badge = 0, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: t.gridline),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 15, color: t.textSecondary),
-          const SizedBox(width: 6),
-          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textPrimary)),
-          if (badge > 0) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(color: t.brandSoft, borderRadius: BorderRadius.circular(999)),
-              child: Text('$badge', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: t.brand)),
-            ),
-          ],
-        ]),
       ),
     );
   }

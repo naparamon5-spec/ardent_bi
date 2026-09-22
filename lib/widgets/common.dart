@@ -31,6 +31,33 @@ class FilterButton extends StatelessWidget {
   }
 }
 
+/// AppBar insights button with a count badge, shared across pages.
+class InsightsButton extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const InsightsButton({super.key, required this.count, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final t = BiTokens.of(context);
+    return Stack(clipBehavior: Clip.none, children: [
+      IconButton(onPressed: onTap, icon: const Icon(Icons.auto_awesome_outlined)),
+      if (count > 0)
+        Positioned(
+          right: 4,
+          top: 4,
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(color: t.brandSoft, shape: BoxShape.circle),
+            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+            child: Text('$count',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: t.brand, fontSize: 9, fontWeight: FontWeight.w700)),
+          ),
+        ),
+    ]);
+  }
+}
+
 class ErrorBanner extends StatelessWidget {
   final String message;
   const ErrorBanner(this.message, {super.key});
