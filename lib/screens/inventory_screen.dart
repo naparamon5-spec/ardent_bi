@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+
 import '../api.dart';
 import '../format.dart';
 import '../state/auth_state.dart';
@@ -9,8 +14,14 @@ import '../theme.dart';
 import '../widgets/bi_chart.dart';
 import '../widgets/common.dart';
 import '../widgets/filter_sheet.dart';
+import '../widgets/insights_sheet.dart';
 import '../widgets/kpi_tile.dart';
 
+/// Inventory — the mobile counterpart of `web/app/pages/inventory.vue`: the
+/// break-down-by / measure bar, the five headline KPIs, insights, then stock by
+/// dimension, the ageing profile, ageing composition per dimension, top items
+/// by value, slow-moving stock and the stock-on-hand detail, in the web's
+/// order.
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
   @override
@@ -23,22 +34,48 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   bool _loading = true;
   String? _error;
+
+  List<Map<String, dynamic>> _dimOptions = _fallbackDims.map((e) => Map<String, dynamic>.from(e)).toList();
+  List<Map<String, dynamic>> _measureOptions = _fallbackMeasures.map((e) => Map<String, dynamic>.from(e)).toList();
+
   Map<String, dynamic>? _kpis;
   Map<String, dynamic>? _breakdown;
+  Map<String, dynamic>? _ageingByDim;
+  List<dynamic> _topItems = [];
+  List<dynamic> _slowMoving = [];
+  List<dynamic> _insights = [];
+
+  bool _detailLoading = true;
+  List<dynamic> _detail = [];
+  int _detailTotal = 0;
 
   String _dimension = 'brand';
-  static const _dimensions = {
-    'brand': 'Brand',
-    'productManager': 'Prod. manager',
-    'productGroup': 'Product group',
-    'warehouse': 'Warehouse',
-  };
+  String _measure = 'value';
+  int _slowMovingDays = 180;
+  int _page = 1;
+  String _sortBy = 'value';
+  String _sortDir = 'desc';
+
+  static const _fallbackDims = [
+    {'key': 'brand', 'label': 'Brand'},
+    {'key': 'productManager', 'label': 'Product Manager'},
+    {'key': 'productGroup', 'label': 'Product Group'},
+    {'key': 'warehouse', 'label': 'Warehouse'},
+  ];
+  static const _fallbackMeasures = [
+    {'key': 'value', 'label': 'Inventory Value', 'format': 'currency'},
+    {'key': 'qty', 'label': 'Quantity', 'format': 'number'},
+    {'key': 'skus', 'label': 'SKUs', 'format': 'number'},
+  ];
+  static const _slowMovingChoices = {90: 'Over 90 days', 120: 'Over 120 days', 180: 'Over 180 days', 365: 'Over 365 days'};
+  static const _pageSize = 25;
 
   @override
   void initState() {
     super.initState();
     _filters = context.read<FilterState>();
     _filters.addListener(_onFilters);
+    _loadMeta();
     _load();
   }
 
@@ -51,7 +88,47 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   void _onFilters() {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), _load);
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      setState(() => _page = 1);
+      _load();
+    });
+  }
+
+  String get _dimLabel => _labelFor(_dimOptions, _dimension);
+  Map<String, dynamic> get _measureMeta =>
+      _measureOptions.firstWhere((m) => m['key'] == _measure, orElse: () => _fallbackMeasures[0]);
+  String get _measureLabel => (_measureMeta['label'] ?? 'Value').toString();
+  bool get _measureIsCurrency => (_measureMeta['format'] ?? 'number') == 'currency';
+
+  static String _labelFor(List<Map<String, dynamic>> opts, String key) =>
+      (opts.firstWhere((d) => d['key'] == key, orElse: () => {'label': key})['label'] ?? key).toString();
+
+  Map<String, dynamic> get _body => {'filters': _filters.inventoryPayload};
+
+  Future<void> _loadMeta() async {
+    try {
+      final res = await context.read<AuthState>().client.get('/api/inventory/meta') as Map;
+      if (!mounted) return;
+      setState(() {
+        final dims = ((res['dimensions'] as List?) ?? const []).cast<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        final measures = ((res['measures'] as List?) ?? const []).cast<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        if (dims.isNotEmpty) _dimOptions = dims;
+        if (measures.isNotEmpty) _measureOptions = measures;
+      });
+    } catch (_) {
+      // Meta is a nicety; the fallbacks keep the page usable offline.
+    }
+  }
+
+  /// A section that the API may not serve should leave the rest of the page
+  /// standing, so each request resolves to null instead of failing the batch.
+  Future<Map<String, dynamic>?> _tryPost(String path, Object body) async {
+    try {
+      final res = await context.read<AuthState>().client.post(path, body);
+      return res is Map ? Map<String, dynamic>.from(res) : null;
+    } on ApiException {
+      return null;
+    }
   }
 
   Future<void> _load() async {
@@ -61,16 +138,24 @@ class _InventoryScreenState extends State<InventoryScreen> {
       _error = null;
     });
     final api = context.read<AuthState>().client;
-    final body = {'filters': _filters.inventoryPayload};
+    _loadDetail();
     try {
-      final results = await Future.wait([
-        api.post('/api/inventory/kpis', body),
-        api.post('/api/inventory/breakdown', {...body, 'dimension': _dimension, 'measure': 'value', 'limit': 15}),
+      final kpis = await api.post('/api/inventory/kpis', _body) as Map<String, dynamic>;
+      final rest = await Future.wait([
+        _tryPost('/api/inventory/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 15}),
+        _tryPost('/api/inventory/ageing-breakdown', {..._body, 'dimension': _dimension, 'limit': 12}),
+        _tryPost('/api/inventory/top-items', {..._body, 'measure': _measure, 'limit': 20}),
+        _tryPost('/api/inventory/slow-moving', {..._body, 'minDays': _slowMovingDays, 'limit': 25}),
+        _tryPost('/api/inventory/insights', {..._body, 'dimension': _dimension}),
       ]);
       if (!mounted) return;
       setState(() {
-        _kpis = results[0] as Map<String, dynamic>;
-        _breakdown = results[1] as Map<String, dynamic>;
+        _kpis = kpis;
+        _breakdown = rest[0];
+        _ageingByDim = rest[1];
+        _topItems = (rest[2]?['rows'] as List?) ?? const [];
+        _slowMoving = (rest[3]?['rows'] as List?) ?? const [];
+        _insights = (rest[4]?['insights'] as List?) ?? const [];
         _loading = false;
       });
     } on ApiException catch (e) {
@@ -82,14 +167,81 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
   }
 
+  Future<void> _loadSlowMoving() async {
+    final res = await _tryPost('/api/inventory/slow-moving', {..._body, 'minDays': _slowMovingDays, 'limit': 25});
+    if (!mounted) return;
+    setState(() => _slowMoving = (res?['rows'] as List?) ?? const []);
+  }
+
+  Future<void> _loadDetail() async {
+    if (!mounted) return;
+    setState(() => _detailLoading = true);
+    final res = await _tryPost('/api/inventory/detail', {
+      ..._body,
+      'page': _page,
+      'pageSize': _pageSize,
+      'sortBy': _sortBy,
+      'sortDir': _sortDir,
+    });
+    if (!mounted) return;
+    setState(() {
+      _detail = (res?['rows'] as List?) ?? const [];
+      _detailTotal = (res?['total'] as num?)?.toInt() ?? 0;
+      _detailLoading = false;
+    });
+  }
+
+  void _sortDetail(String key) {
+    setState(() {
+      if (_sortBy == key) {
+        _sortDir = _sortDir == 'asc' ? 'desc' : 'asc';
+      } else {
+        _sortBy = key;
+        _sortDir = 'desc';
+      }
+      _page = 1;
+    });
+    _loadDetail();
+  }
+
+  Future<void> _share(String name, String csv) => SharePlus.instance.share(ShareParams(
+        files: [XFile.fromData(utf8.encode(csv), mimeType: 'text/csv', name: name)],
+        subject: name,
+      ));
+
+  String get _stamp => DateTime.now().toIso8601String().substring(0, 10);
+
+  Future<void> _exportDetail() async {
+    try {
+      final csv = await context.read<AuthState>().client
+          .postText('/api/inventory/export', {'filters': _filters.inventoryPayload, 'limit': 20000});
+      await _share('ardent-stock-on-hand-$_stamp.csv', csv);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  /// Slow-moving is already in hand and capped at what the card shows, so it is
+  /// written locally rather than asking the server for a second export.
+  Future<void> _exportSlowMoving() async {
+    const cols = ['item', 'description', 'brand', 'productManager', 'warehouse', 'qty', 'days', 'value'];
+    final lines = <String>[cols.join(',')];
+    for (final r in _slowMoving.cast<Map>()) {
+      lines.add(cols.map((c) {
+        final v = r[c];
+        final s = v is num ? v.toString() : '${v ?? ''}';
+        return s.contains(RegExp(r'[",\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+      }).join(','));
+    }
+    await _share('ardent-slow-moving-$_stamp.csv', lines.join('\n'));
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = BiTokens.of(context);
     final filters = context.watch<FilterState>();
     final k = _kpis ?? const {};
-    final ageing = (k['ageing'] as List?) ?? const [];
-    final rows = (_breakdown?['rows'] as List?) ?? const [];
-    final over90 = (k['over90Share'] as num?)?.toDouble() ?? 0;
+    final dead = (k['deadStock'] as Map?) ?? const {};
 
     return Scaffold(
       appBar: AppBar(
@@ -102,35 +254,62 @@ class _InventoryScreenState extends State<InventoryScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
           children: [
             if (_error != null) ErrorBanner(_error!),
+            _filterBar(t, filters),
+            const SizedBox(height: 12),
             KpiGrid(tiles: [
               KpiTile(label: 'Stock value', value: k['value'], format: 'currency', loading: _loading),
-              KpiTile(label: 'SKUs on hand', value: k['skus'], format: 'number', loading: _loading),
-              KpiTile(label: 'Aged over 90d', value: over90, format: 'percent', loading: _loading),
-              KpiTile(label: 'Slow-moving', value: k['slowMovingShare'], format: 'percent', loading: _loading),
+              KpiTile(
+                  label: 'Quantity on hand',
+                  value: k['qty'] ?? k['quantity'] ?? k['onHand'],
+                  format: 'number',
+                  loading: _loading),
+              KpiTile(label: 'SKUs', value: k['skus'], format: 'number', loading: _loading),
+              KpiTile(
+                  label: 'Aged over 90 days',
+                  value: k['over90Share'],
+                  format: 'percent',
+                  loading: _loading,
+                  sub: Fmt.money(k['over90Value'] ?? 0)),
+              KpiTile(
+                  label: 'Dead stock (365d+)',
+                  value: dead['value'],
+                  format: 'currency',
+                  loading: _loading,
+                  sub: '${Fmt.number(dead['skus'] ?? 0)} SKUs'),
             ]),
-            const SizedBox(height: 16),
-            BiCard(
-              title: 'Ageing profile',
-              subtitle: 'Stock value by days on hand',
-              child: _ageingBars(t, ageing),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _barButton(t,
+                  icon: Icons.lightbulb_outline,
+                  label: 'Insights',
+                  badge: _insights.length,
+                  onTap: () => showInsightsSheet(context, _insights)),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             BiChartCard(
-              title: 'Stock value breakdown',
-              above: ChipChooser<String>(
-                options: _dimensions,
-                value: _dimension,
-                onChanged: (dim) {
-                  setState(() => _dimension = dim);
-                  _load();
-                },
-              ),
-              bars: rows
-                  .map((r) => BarDatum((r['name'] ?? '—').toString(), (r['value'] as num?)?.toDouble() ?? 0))
-                  .toList(),
+              title: 'Stock by $_dimLabel',
+              subtitle: 'Tap to add it to the filter',
+              currency: _measureIsCurrency,
+              bars: ((_breakdown?['rows'] as List?) ?? const []).cast<Map>().map((r) {
+                final name = (r['name'] ?? '—').toString();
+                final v = r[_measure] ?? r['value'];
+                return BarDatum(name, v is num ? v.toDouble() : 0,
+                    selected: filters.inventory(_dimension).contains(name));
+              }).toList(),
+              onBarTap: (c) => filters.toggleInventory(_dimension, c),
+              types: const [BiChartType.bar, BiChartType.column, BiChartType.donut, BiChartType.treemap],
             ),
             const SizedBox(height: 16),
-            _deadStockCard(t, k),
+            _ageingProfile(t),
+            const SizedBox(height: 16),
+            _ageingByDimension(t),
+            const SizedBox(height: 16),
+            _topItemsCard(),
+            const SizedBox(height: 16),
+            _slowMovingCard(t),
+            const SizedBox(height: 16),
+            _detailCard(t),
             const SizedBox(height: 24),
           ],
         ),
@@ -138,77 +317,405 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
-  Widget _ageingBars(BiTokens t, List ageing) {
-    if (ageing.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        child: Center(child: Text('No ageing data', style: TextStyle(color: t.textMuted, fontSize: 12))),
-      );
-    }
-    final maxV = ageing.fold<double>(0, (a, b) {
-      final v = (b['value'] as num?)?.toDouble() ?? 0;
-      return v > a ? v : a;
-    });
-    final denom = maxV == 0 ? 1.0 : maxV;
-    return Column(
-      children: [
-        for (var i = 0; i < ageing.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Expanded(
-                    child: Text((ageing[i]['label'] ?? '').toString(),
-                        style: TextStyle(fontSize: 12, color: t.textPrimary)),
-                  ),
-                  Text(Fmt.money(ageing[i]['value']),
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textSecondary)),
-                ]),
-                const SizedBox(height: 4),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: Stack(children: [
-                    Container(height: 8, color: t.gridline),
-                    FractionallySizedBox(
-                      widthFactor: (((ageing[i]['value'] as num?)?.toDouble() ?? 0) / denom).clamp(0.001, 1.0),
-                      child: Container(height: 8, color: t.ageing[i % t.ageing.length]),
-                    ),
-                  ]),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
+  // ── Filter bar ──────────────────────────────────────────────────────
 
-  Widget _deadStockCard(BiTokens t, Map k) {
-    final dead = (k['deadStock'] as Map?) ?? const {};
+  Widget _filterBar(BiTokens t, FilterState filters) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(color: AppColors.critical.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
-            child: const Icon(Icons.inventory_2_outlined, color: AppColors.critical, size: 20),
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Expanded(
+              child: _dropdown(t, 'Break down by', _dimOptions.map((e) => e['label'].toString()).toList(), _dimLabel,
+                  (label) {
+                setState(() => _dimension = _dimOptions.firstWhere((e) => e['label'] == label)['key'].toString());
+                _load();
+              }),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _dropdown(t, 'Measure', _measureOptions.map((e) => e['label'].toString()).toList(), _measureLabel,
+                  (label) {
+                setState(() => _measure = _measureOptions.firstWhere((e) => e['label'] == label)['key'].toString());
+                _load();
+              }),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _barButton(t,
+                icon: Icons.filter_list_outlined,
+                label: 'Advanced filters',
+                badge: filters.activeInventoryCount,
+                onTap: () => showFilterSheet(context, FilterModule.inventory)),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Dead stock', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: t.textPrimary)),
-              Text('${Fmt.number(dead['skus'] ?? 0)} SKUs with no recent movement',
-                  style: TextStyle(fontSize: 11.5, color: t.textMuted)),
-            ]),
-          ),
-          Text(Fmt.moneyShort(dead['value'] ?? 0),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.critical)),
         ]),
       ),
     );
   }
+
+  Widget _eyebrow(BiTokens t, String s) => Text(s.toUpperCase(),
+      style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted));
+
+  Widget _dropdown(BiTokens t, String label, List<String> items, String value, ValueChanged<String> onChanged) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _eyebrow(t, label),
+      const SizedBox(height: 6),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: t.gridline),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            isExpanded: true,
+            value: items.contains(value) ? value : (items.isEmpty ? null : items.first),
+            style: TextStyle(fontSize: 13, color: t.textPrimary),
+            iconEnabledColor: t.textSecondary,
+            items: [
+              for (final i in items)
+                DropdownMenuItem(
+                  value: i,
+                  child: Text(i, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: t.textPrimary)),
+                ),
+            ],
+            onChanged: (v) {
+              if (v != null) onChanged(v);
+            },
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _barButton(BiTokens t,
+      {required IconData icon, required String label, int badge = 0, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: t.gridline),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: t.textSecondary),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textPrimary)),
+          if (badge > 0) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(color: t.brandSoft, borderRadius: BorderRadius.circular(999)),
+              child: Text('$badge', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: t.brand)),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  // ── Ageing ──────────────────────────────────────────────────────────
+
+  List<Map> get _ageing => ((_kpis?['ageing'] as List?) ?? const []).cast<Map>();
+
+  Widget _ageingProfile(BiTokens t) {
+    final buckets = _ageing;
+    return BiChartCard(
+      title: 'Ageing profile',
+      subtitle: 'Value sitting in each ageing bucket',
+      currency: true,
+      bars: [
+        for (final b in buckets)
+          BarDatum((b['label'] ?? '').toString(), (b['value'] as num?)?.toDouble() ?? 0),
+      ],
+      palette: t.ageing,
+      height: 200,
+      initialType: BiChartType.column,
+      types: const [BiChartType.column, BiChartType.bar, BiChartType.donut],
+    );
+  }
+
+  /// Ageing composition per dimension member — the web's stacked column, one
+  /// series per bucket in the fixed ageing palette.
+  Widget _ageingByDimension(BiTokens t) {
+    final rows = ((_ageingByDim?['rows'] as List?) ?? const []).cast<Map>();
+    final buckets = ((_ageingByDim?['buckets'] as List?) ?? _ageing.map((b) => b['label']).toList())
+        .map((b) => (b ?? '').toString())
+        .toList();
+    return BiChartCard(
+      title: 'Ageing by $_dimLabel',
+      subtitle: 'Stacked so the composition within each bar is comparable',
+      categories: rows.map((r) => (r['name'] ?? '—').toString()).toList(),
+      series: [
+        for (var i = 0; i < buckets.length; i++)
+          SeriesSpec(
+            buckets[i],
+            rows.map((r) {
+              final values = (r['values'] as List?) ?? const [];
+              return i < values.length ? ((values[i] as num?)?.toDouble() ?? 0) : 0.0;
+            }).toList(),
+          ),
+      ],
+      palette: t.ageing,
+      height: 220,
+      initialType: BiChartType.stacked,
+      types: const [BiChartType.stacked, BiChartType.column],
+    );
+  }
+
+  // ── Top items ───────────────────────────────────────────────────────
+
+  Widget _topItemsCard() {
+    return BiChartCard(
+      title: 'Top items by value',
+      subtitle: 'Where the working capital actually sits',
+      currency: _measureIsCurrency,
+      bars: _topItems.cast<Map>().map((r) {
+        final v = r[_measure] ?? r['value'];
+        return BarDatum((r['item'] ?? r['name'] ?? '—').toString(), v is num ? v.toDouble() : 0);
+      }).toList(),
+      height: 220,
+      initialType: BiChartType.column,
+      types: const [BiChartType.column, BiChartType.bar, BiChartType.treemap],
+    );
+  }
+
+  // ── Slow-moving stock ───────────────────────────────────────────────
+
+  static const _slowCols = [
+    ('item', 'Item', 104.0, false),
+    ('description', 'Description', 200.0, false),
+    ('brand', 'Brand', 96.0, false),
+    ('productManager', 'Product manager', 130.0, false),
+    ('warehouse', 'WH', 56.0, false),
+    ('qty', 'Qty', 56.0, true),
+    ('days', 'Days on hand', 92.0, true),
+    ('value', 'Value', 90.0, true),
+  ];
+
+  Widget _slowMovingCard(BiTokens t) {
+    final rows = _slowMoving.cast<Map>();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Slow-moving stock',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: t.textPrimary)),
+                const SizedBox(height: 2),
+                Text('Sorted by the cash tied up, not by age — that is what gets acted on first.',
+                    style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+              ]),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 140,
+              child: _dropdown(t, 'Age', _slowMovingChoices.values.toList(), _slowMovingChoices[_slowMovingDays]!,
+                  (label) {
+                setState(() => _slowMovingDays = _slowMovingChoices.entries.firstWhere((e) => e.value == label).key);
+                _loadSlowMoving();
+              }),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          Align(alignment: Alignment.centerRight, child: _exportButton(t, rows.isEmpty ? null : _exportSlowMoving)),
+          const SizedBox(height: 10),
+          if (rows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                  child: Text('Nothing slow-moving in this selection',
+                      style: TextStyle(color: t.textMuted, fontSize: 12))),
+            )
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Table(
+                columnWidths: {for (var i = 0; i < _slowCols.length; i++) i: FixedColumnWidth(_slowCols[i].$3)},
+                children: [
+                  TableRow(children: [for (final c in _slowCols) _plainHeader(t, c.$2, c.$4)]),
+                  for (final r in rows)
+                    TableRow(children: [
+                      _cell(t, '${r['item'] ?? '—'}', maxLines: 1, bold: true),
+                      _cell(t, '${r['description'] ?? '—'}'),
+                      _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
+                      _cell(t, '${r['productManager'] ?? '—'}', maxLines: 1),
+                      _cell(t, '${r['warehouse'] ?? '—'}', maxLines: 1),
+                      _cell(t, Fmt.number(r['qty']), numeric: true, maxLines: 1),
+                      _cell(t, Fmt.number(r['days']), numeric: true, maxLines: 1, color: AppColors.serious),
+                      _cell(t, Fmt.money(r['value']), numeric: true, maxLines: 1, bold: true),
+                    ]),
+                ],
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  // ── Stock on hand ───────────────────────────────────────────────────
+
+  static const _detailCols = [
+    ('item', 'Item', 104.0, false),
+    ('description', 'Description', 200.0, false),
+    ('brand', 'Brand', 96.0, false),
+    ('productGroup', 'Product group', 130.0, false),
+    ('productManager', 'Product manager', 130.0, false),
+    ('unit', 'Unit', 56.0, false),
+    ('warehouse', 'WH', 56.0, false),
+    ('qty', 'Qty', 56.0, true),
+    ('avgCost', 'Avg cost', 90.0, true),
+    ('days', 'Days', 60.0, true),
+    ('value', 'Value', 90.0, true),
+  ];
+
+  Widget _detailCard(BiTokens t) {
+    final pages = max(1, (_detailTotal / _pageSize).ceil());
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text('Stock on hand', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: t.textPrimary)),
+            const Spacer(),
+            Text('${Fmt.number(_detailTotal)} rows', style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+            const SizedBox(width: 8),
+            _exportButton(t, _exportDetail),
+          ]),
+          const SizedBox(height: 12),
+          if (_detail.isEmpty && !_detailLoading)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: Text('No stock for this selection', style: TextStyle(color: t.textMuted, fontSize: 12))),
+            )
+          else
+            Opacity(
+              opacity: _detailLoading ? 0.4 : 1,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Table(
+                  columnWidths: {for (var i = 0; i < _detailCols.length; i++) i: FixedColumnWidth(_detailCols[i].$3)},
+                  children: [
+                    TableRow(children: [for (final c in _detailCols) _sortHeader(t, c.$1, c.$2, c.$4)]),
+                    for (final r in _detail.cast<Map>())
+                      TableRow(children: [
+                        _cell(t, '${r['item'] ?? '—'}', maxLines: 1, bold: true),
+                        _cell(t, '${r['description'] ?? '—'}'),
+                        _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
+                        _cell(t, '${r['productGroup'] ?? '—'}'),
+                        _cell(t, '${r['productManager'] ?? '—'}', maxLines: 1),
+                        _cell(t, '${r['unit'] ?? '—'}', maxLines: 1),
+                        _cell(t, '${r['warehouse'] ?? '—'}', maxLines: 1),
+                        _cell(t, Fmt.number(r['qty']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['avgCost']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.number(r['days']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['value']), numeric: true, maxLines: 1, bold: true),
+                      ]),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: _page > 1
+                  ? () {
+                      setState(() => _page--);
+                      _loadDetail();
+                    }
+                  : null,
+              icon: const Icon(Icons.chevron_left, size: 18),
+            ),
+            Text('Page $_page of $pages', style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: _page < pages
+                  ? () {
+                      setState(() => _page++);
+                      _loadDetail();
+                    }
+                  : null,
+              icon: const Icon(Icons.chevron_right, size: 18),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  // ── Table plumbing ──────────────────────────────────────────────────
+
+  Widget _exportButton(BiTokens t, VoidCallback? onTap) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: t.gridline)),
+          child: Text('Export CSV',
+              style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600, color: onTap == null ? t.textMuted : t.textPrimary)),
+        ),
+      );
+
+  Widget _plainHeader(BiTokens t, String label, bool numeric) => Container(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
+        child: Text(label.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: numeric ? TextAlign.right : TextAlign.left,
+            style: TextStyle(fontSize: 10, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted)),
+      );
+
+  Widget _sortHeader(BiTokens t, String key, String label, bool numeric) {
+    final sorted = _sortBy == key;
+    return InkWell(
+      onTap: () => _sortDetail(key),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
+        child: Row(
+          mainAxisAlignment: numeric ? MainAxisAlignment.end : MainAxisAlignment.start,
+          children: [
+            Flexible(
+              child: Text(label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: numeric ? TextAlign.right : TextAlign.left,
+                  style: TextStyle(
+                      fontSize: 10,
+                      letterSpacing: 0.5,
+                      fontWeight: FontWeight.w600,
+                      color: sorted ? t.brand : t.textMuted)),
+            ),
+            if (sorted) Icon(_sortDir == 'asc' ? Icons.arrow_upward : Icons.arrow_downward, size: 11, color: t.brand),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cell(BiTokens t, String text, {bool numeric = false, int maxLines = 2, bool bold = false, Color? color}) =>
+      Container(
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
+        child: Text(text,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            textAlign: numeric ? TextAlign.right : TextAlign.left,
+            style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+                color: color ?? (bold ? t.textPrimary : t.textSecondary))),
+      );
 }
