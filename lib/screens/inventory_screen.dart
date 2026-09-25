@@ -398,7 +398,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
       palette: t.ageing,
       height: 200,
       initialType: BiChartType.column,
-      types: const [BiChartType.column, BiChartType.bar, BiChartType.donut],
+      types: const [BiChartType.column, BiChartType.bar, BiChartType.donut, BiChartType.funnel],
     );
   }
 
@@ -426,7 +426,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
       palette: t.ageing,
       height: 220,
       initialType: BiChartType.stacked,
-      types: const [BiChartType.stacked, BiChartType.column],
+      types: const [BiChartType.stacked, BiChartType.stacked100, BiChartType.column],
     );
   }
 

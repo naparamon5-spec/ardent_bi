@@ -188,7 +188,7 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
               ],
               height: 240,
               initialType: BiChartType.column,
-              types: const [BiChartType.column, BiChartType.line, BiChartType.area, BiChartType.bar],
+              types: const [BiChartType.column, BiChartType.stacked, BiChartType.line, BiChartType.bar],
             ),
             const SizedBox(height: 16),
             BiChartCard(
@@ -200,7 +200,7 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
               series: [SeriesSpec('Growth', rows.map((r) => _growth(r) ?? 0).toList())],
               height: 240,
               initialType: BiChartType.column,
-              types: const [BiChartType.column, BiChartType.line, BiChartType.area],
+              types: const [BiChartType.column, BiChartType.bar, BiChartType.line],
             ),
             const SizedBox(height: 16),
             _brandCard(t),

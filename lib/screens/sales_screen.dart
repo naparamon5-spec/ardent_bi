@@ -295,7 +295,7 @@ class _SalesScreenState extends State<SalesScreen> {
                     selected: filters.sales(_dimension).contains(name));
               }).toList(),
               onBarTap: (c) => filters.toggleSales(_dimension, c),
-              types: const [BiChartType.bar, BiChartType.column, BiChartType.donut, BiChartType.treemap],
+              types: const [BiChartType.bar, BiChartType.column, BiChartType.pie, BiChartType.donut, BiChartType.funnel, BiChartType.treemap],
               insights: _insightsFor(const ['leader', 'concentration', 'margin-spread', 'negatives']),
             ),
             const SizedBox(height: 16),
