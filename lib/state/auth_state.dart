@@ -14,7 +14,6 @@ class AuthState extends ChangeNotifier {
   static const _kBase = 'ardentbi_base_v2';
   // Security (HRIS-style): auto sign-out after inactivity and on app termination.
   static const _kLastActive = 'ardentbi_last_active';
-  static const _kRunning = 'ardentbi_running';
   static const _kRememberUser = 'ardentbi_remember_user';
 
   /// Idle window before the session is dropped, in the foreground and while
@@ -93,16 +92,14 @@ class AuthState extends ChangeNotifier {
     api.token = prefs.getString(_kToken);
 
     if (api.token != null && api.token!.isNotEmpty) {
-      // Security gate: if the previous run never cleanly detached (the app was
-      // swiped away / killed from the multitask switcher, or crashed) the
-      // "running" flag is still set — force a fresh sign-in. Likewise if the
-      // saved session is older than the idle window.
-      final wasKilled = prefs.getBool(_kRunning) ?? false;
+      // Idle-timeout gate: keep the session across app restarts/refreshes, and
+      // only require a fresh sign-in once it has been idle longer than the
+      // timeout window. (A plain restart within the window stays signed in.)
       final lastMs = prefs.getInt(_kLastActive);
       final expired = lastMs != null &&
           DateTime.now().millisecondsSinceEpoch - lastMs >
               sessionTimeout.inMilliseconds;
-      if (wasKilled || expired) {
+      if (expired) {
         api.token = null;
         await prefs.remove(_kToken);
         user = null;
@@ -111,8 +108,6 @@ class AuthState extends ChangeNotifier {
       }
     }
 
-    // Mark this instance as running; a clean shutdown clears it in handleDetached.
-    await prefs.setBool(_kRunning, true);
     await _saveLastActive();
     if (isAuthenticated) _startIdleTimer();
     booting = false;
@@ -168,13 +163,10 @@ class AuthState extends ChangeNotifier {
     }
   }
 
-  /// App is being terminated cleanly: clear the token and the running flag so
-  /// the next launch requires a fresh sign-in.
+  /// App is being terminated: just record when, so the idle window is enforced
+  /// on the next launch. The token is kept, so a quick restart stays signed in.
   Future<void> handleDetached() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kRunning, false);
-    api.token = null;
-    await _persistToken();
+    if (isAuthenticated) await _saveLastActive();
   }
 
   /// "Remember me": the last username the user chose to keep (never the

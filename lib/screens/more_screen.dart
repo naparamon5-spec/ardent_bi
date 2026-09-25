@@ -5,6 +5,7 @@ import '../theme.dart';
 import 'account_screen.dart';
 // Temporarily hidden — kept for quick restore.
 // import 'accrued_screen.dart';
+import 'info_screens.dart';
 import 'periods_screen.dart';
 import 'reorder_point_screen.dart';
 
@@ -67,6 +68,22 @@ class MoreScreen extends StatelessWidget {
               'Account & settings',
               'Profile, server, sign out',
               () => open(const AccountScreen()),
+            ),
+            const SizedBox(height: 16),
+            _sectionLabel(t, 'ABOUT'),
+            _tile(
+              t,
+              Icons.help_outline,
+              'Support',
+              'Get help and contact IT',
+              () => open(const SupportScreen()),
+            ),
+            _tile(
+              t,
+              Icons.privacy_tip_outlined,
+              'Privacy Policy',
+              'How your data is handled',
+              () => open(const PrivacyPolicyScreen()),
             ),
           ],
         ),
