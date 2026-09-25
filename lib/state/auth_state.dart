@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 
@@ -7,8 +9,28 @@ import '../api.dart';
 /// client gets from build-time config but a phone must be told at runtime.
 class AuthState extends ChangeNotifier {
   static const _kToken = 'ardentbi_jwt';
-  static const _kBase = 'ardentbi_base';
-  static const defaultBase = 'http://localhost:4000';
+  // Bumped from `ardentbi_base` so any stale localhost URL saved by an earlier
+  // build is discarded and the .env / default is used instead.
+  static const _kBase = 'ardentbi_base_v2';
+  // Security (HRIS-style): auto sign-out after inactivity and on app termination.
+  static const _kLastActive = 'ardentbi_last_active';
+  static const _kRunning = 'ardentbi_running';
+  static const _kRememberUser = 'ardentbi_remember_user';
+
+  /// Idle window before the session is dropped, in the foreground and while
+  /// backgrounded. Matches the HRIS mobile app's short lock timeout.
+  static const sessionTimeout = Duration(minutes: 3);
+
+  Timer? _idleTimer;
+  DateTime _lastActive = DateTime.now();
+  /// Live Ardent BI API. Read from `.env` (API_BASE_URL) when present, else this
+  /// fallback. Overridable at runtime on the login screen (e.g.
+  /// `http://<dev-machine-ip>:4000` when running the backend locally).
+  static const _fallbackBase = 'https://ardentbi-api.ardentnetworks.com.ph';
+  static String get defaultBase {
+    final v = dotenv.isInitialized ? (dotenv.maybeGet('API_BASE_URL') ?? '') : '';
+    return v.trim().isEmpty ? _fallbackBase : v.trim();
+  }
 
   late ApiClient api;
   Map<String, dynamic>? user;
@@ -62,13 +84,113 @@ class AuthState extends ChangeNotifier {
 
   Future<void> _boot() async {
     final prefs = await SharedPreferences.getInstance();
-    api.baseUrl = prefs.getString(_kBase) ?? defaultBase;
+    final saved = prefs.getString(_kBase);
+    // Ignore any stale local/dev URL saved on device; fall back to the
+    // configured default so the app reaches the live API out of the box.
+    final isLocal = saved != null &&
+        (saved.contains('localhost') || saved.contains('127.0.0.1') || saved.contains('10.0.2.2'));
+    api.baseUrl = (saved == null || saved.trim().isEmpty || isLocal) ? defaultBase : saved;
     api.token = prefs.getString(_kToken);
+
     if (api.token != null && api.token!.isNotEmpty) {
-      await fetchMe();
+      // Security gate: if the previous run never cleanly detached (the app was
+      // swiped away / killed from the multitask switcher, or crashed) the
+      // "running" flag is still set — force a fresh sign-in. Likewise if the
+      // saved session is older than the idle window.
+      final wasKilled = prefs.getBool(_kRunning) ?? false;
+      final lastMs = prefs.getInt(_kLastActive);
+      final expired = lastMs != null &&
+          DateTime.now().millisecondsSinceEpoch - lastMs >
+              sessionTimeout.inMilliseconds;
+      if (wasKilled || expired) {
+        api.token = null;
+        await prefs.remove(_kToken);
+        user = null;
+      } else {
+        await fetchMe();
+      }
     }
+
+    // Mark this instance as running; a clean shutdown clears it in handleDetached.
+    await prefs.setBool(_kRunning, true);
+    await _saveLastActive();
+    if (isAuthenticated) _startIdleTimer();
     booting = false;
     notifyListeners();
+  }
+
+  // ── Session lifetime / auto-lock ───────────────────────────────────────────
+
+  /// Reset the inactivity countdown. Called on every user interaction.
+  void touch() {
+    if (!isAuthenticated) return;
+    _lastActive = DateTime.now();
+    _startIdleTimer();
+  }
+
+  void _startIdleTimer() {
+    _idleTimer?.cancel();
+    _idleTimer = Timer(sessionTimeout, expireSession);
+  }
+
+  Future<void> _saveLastActive() async {
+    _lastActive = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kLastActive, _lastActive.millisecondsSinceEpoch);
+  }
+
+  /// Drop the session locally (no server round-trip) and return to login.
+  void expireSession() {
+    _idleTimer?.cancel();
+    _forceSignedOut();
+  }
+
+  /// App sent to the background / app switcher: stop the foreground timer and
+  /// remember when we left so [handleResume] can enforce the idle window.
+  Future<void> handlePause() async {
+    _idleTimer?.cancel();
+    if (isAuthenticated) await _saveLastActive();
+  }
+
+  /// App brought back to the foreground: sign out if the idle window elapsed
+  /// while we were away, otherwise resume the countdown.
+  Future<void> handleResume() async {
+    if (!isAuthenticated) return;
+    final prefs = await SharedPreferences.getInstance();
+    final lastMs = prefs.getInt(_kLastActive);
+    final expired = lastMs != null &&
+        DateTime.now().millisecondsSinceEpoch - lastMs >
+            sessionTimeout.inMilliseconds;
+    if (expired) {
+      expireSession();
+    } else {
+      touch();
+    }
+  }
+
+  /// App is being terminated cleanly: clear the token and the running flag so
+  /// the next launch requires a fresh sign-in.
+  Future<void> handleDetached() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kRunning, false);
+    api.token = null;
+    await _persistToken();
+  }
+
+  /// "Remember me": the last username the user chose to keep (never the
+  /// password). Prefilled on the login screen.
+  Future<String?> rememberedUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kRememberUser);
+  }
+
+  Future<void> setRememberedUsername(String? name) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (name == null || name.trim().isEmpty) {
+      await prefs.remove(_kRememberUser);
+    } else {
+      await prefs.setString(_kRememberUser, name.trim());
+    }
   }
 
   Future<void> setBaseUrl(String url) async {
@@ -100,6 +222,8 @@ class AuthState extends ChangeNotifier {
       await _persistToken();
       user = (res['user'] as Map).cast<String, dynamic>();
       await fetchMe();
+      await _saveLastActive();
+      _startIdleTimer();
       return user;
     } on ApiException catch (e) {
       error = e.message;
@@ -109,18 +233,6 @@ class AuthState extends ChangeNotifier {
       notifyListeners();
     }
   }
-
-  /// Bypass sign-in and browse the UI with canned data. No network, no token
-  /// persisted — logging out returns to the login screen cleanly.
-  void enterDemo() {
-    api.demo = true;
-    api.token = 'demo-token';
-    user = {'id': 0, 'username': 'demo', 'name': 'Demo User', 'role': 'admin'};
-    access = {'enforced': false, 'deny': false, 'level': 'executive'};
-    notifyListeners();
-  }
-
-  bool get isDemo => api.demo;
 
   Future<void> fetchMe() async {
     if (api.token == null || api.token!.isEmpty) {
@@ -141,10 +253,10 @@ class AuthState extends ChangeNotifier {
   }
 
   void _forceSignedOut() {
+    _idleTimer?.cancel();
     user = null;
     access = null;
     api.token = null;
-    api.demo = false;
     _persistToken();
     notifyListeners();
   }
@@ -156,5 +268,11 @@ class AuthState extends ChangeNotifier {
       // token may already be gone
     }
     _forceSignedOut();
+  }
+
+  @override
+  void dispose() {
+    _idleTimer?.cancel();
+    super.dispose();
   }
 }

@@ -5,6 +5,7 @@ import '../api.dart';
 import '../format.dart';
 import '../state/auth_state.dart';
 import '../state/filter_state.dart';
+import '../state/ui_state.dart';
 import '../theme.dart';
 import '../widgets/bi_chart.dart';
 import '../widgets/insights_sheet.dart';
@@ -58,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _loading = true;
       _error = null;
     });
+    final loading = context.read<LoadingState>()..show();
     final api = context.read<AuthState>().client;
     final body = {'filters': _filters.salesPayload};
     try {
@@ -89,6 +91,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _error = e.message;
         _loading = false;
       });
+    } finally {
+      loading.hide();
     }
   }
 

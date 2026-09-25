@@ -7,6 +7,7 @@ import '../api.dart';
 import '../format.dart';
 import '../state/auth_state.dart';
 import '../state/filter_state.dart';
+import '../state/ui_state.dart';
 import '../theme.dart';
 import '../widgets/bi_chart.dart';
 import '../widgets/common.dart';
@@ -81,6 +82,7 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
       _loading = true;
       _error = null;
     });
+    final loading = context.read<LoadingState>()..show();
     final api = context.read<AuthState>().client;
     try {
       final res = await api.post('/api/sales/comparison', _body);
@@ -97,6 +99,8 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
         _error = e.message;
         _loading = false;
       });
+    } finally {
+      loading.hide();
     }
   }
 

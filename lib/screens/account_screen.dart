@@ -43,7 +43,6 @@ class AccountScreen extends StatelessWidget {
           _infoTile(t, Icons.badge_outlined, 'Username', (user['username'] ?? '—').toString()),
           if (auth.scopeNote != null)
             _infoTile(t, Icons.shield_outlined, 'Data scope', auth.scopeNote!),
-          _infoTile(t, Icons.dns_outlined, 'Server', auth.baseUrl),
           const SizedBox(height: 20),
           if (auth.hasNoData)
             Padding(

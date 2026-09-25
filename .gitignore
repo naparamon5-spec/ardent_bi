@@ -45,7 +45,11 @@ app.*.map.json
 /android/app/release
 
 
-# Environment Variables 
+# Environment Variables
+# .env holds only the public API base URL and is bundled as a Flutter asset,
+# so it is committed. Keep any secret-bearing variants out of git.
+.env.local
+.env.*.local
 .env
 
 # Modules
