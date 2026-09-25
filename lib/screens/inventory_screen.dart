@@ -10,6 +10,7 @@ import '../api.dart';
 import '../format.dart';
 import '../state/auth_state.dart';
 import '../state/filter_state.dart';
+import '../state/ui_state.dart';
 import '../theme.dart';
 import '../widgets/bi_chart.dart';
 import '../widgets/common.dart';
@@ -137,6 +138,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
       _loading = true;
       _error = null;
     });
+    final loading = context.read<LoadingState>()..show();
     final api = context.read<AuthState>().client;
     _loadDetail();
     try {
@@ -164,6 +166,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
         _error = e.message;
         _loading = false;
       });
+    } finally {
+      loading.hide();
     }
   }
 

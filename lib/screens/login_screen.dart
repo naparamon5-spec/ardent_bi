@@ -14,23 +14,28 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _user = TextEditingController();
   final _pass = TextEditingController();
-  late final TextEditingController _server;
-  bool _showServer = false;
   bool _obscure = true;
   bool _submitting = false;
+  bool _remember = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _server = TextEditingController(text: context.read<AuthState>().baseUrl);
+    // Prefill the remembered username, if any.
+    context.read<AuthState>().rememberedUsername().then((name) {
+      if (!mounted || name == null || name.isEmpty) return;
+      setState(() {
+        _user.text = name;
+        _remember = true;
+      });
+    });
   }
 
   @override
   void dispose() {
     _user.dispose();
     _pass.dispose();
-    _server.dispose();
     super.dispose();
   }
 
@@ -41,8 +46,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      await auth.setBaseUrl(_server.text);
       await auth.login(_user.text.trim(), _pass.text);
+      // Persist (or clear) the remembered username on a successful sign-in.
+      await auth.setRememberedUsername(_remember ? _user.text.trim() : null);
       // Navigation is handled by the root listening to auth state.
     } on ApiException catch (e) {
       setState(
@@ -79,12 +85,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   children: [
                     Container(
-                      width: 84,
-                      height: 84,
+                      width: 92,
+                      height: 92,
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: AppColors.chromeBorder),
+                        color: Colors.white,
+                        shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.25),
@@ -94,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                       alignment: Alignment.center,
-                      child: Image.asset('assets/logo.png', width: 52, height: 52),
+                      child: Image.asset('assets/logo_mark.png', width: 56),
                     ),
                     const SizedBox(height: 20),
                     RichText(
@@ -219,40 +224,42 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: TextButton.icon(
-                                  onPressed: () => setState(
-                                    () => _showServer = !_showServer,
+                              InkWell(
+                                onTap: _submitting
+                                    ? null
+                                    : () => setState(() => _remember = !_remember),
+                                borderRadius: BorderRadius.circular(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        height: 24,
+                                        width: 24,
+                                        child: Checkbox(
+                                          value: _remember,
+                                          onChanged: _submitting
+                                              ? null
+                                              : (v) => setState(
+                                                    () => _remember = v ?? false,
+                                                  ),
+                                          activeColor: t.brand,
+                                          materialTapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Text(
+                                        'Remember me',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: t.textSecondary,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  icon: Icon(
-                                    _showServer
-                                        ? Icons.expand_less
-                                        : Icons.dns_outlined,
-                                    size: 18,
-                                  ),
-                                  label: const Text('Server settings'),
                                 ),
                               ),
-                              if (_showServer) ...[
-                                TextField(
-                                  controller: _server,
-                                  keyboardType: TextInputType.url,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Server URL',
-                                    hintText: 'http://localhost:4000',
-                                    prefixIcon: Icon(Icons.link),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'On the Android emulator use http://10.0.2.2:4000; on a real phone use the server’s LAN IP.',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: t.textMuted,
-                                  ),
-                                ),
-                              ],
                               const SizedBox(height: 20),
                               FilledButton(
                                 onPressed: _submitting ? null : _submit,
@@ -273,59 +280,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                         ),
                                       )
                                     : const Text(
-                                        'Sign in',
+                                        'Login',
                                         style: TextStyle(
                                           fontSize: 15,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
-                              ),
-                              const SizedBox(height: 16),
-                              Row(
-                                children: [
-                                  Expanded(child: Divider(color: t.gridline)),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                    ),
-                                    child: Text(
-                                      'or',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: t.textMuted,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(child: Divider(color: t.gridline)),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              OutlinedButton.icon(
-                                onPressed: _submitting
-                                    ? null
-                                    : () =>
-                                          context.read<AuthState>().enterDemo(),
-                                icon: const Icon(
-                                  Icons.visibility_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('Preview the UI (demo data)'),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 13,
-                                  ),
-                                  side: BorderSide(color: t.gridline),
-                                  foregroundColor: t.textSecondary,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'No server needed — browse every screen with sample figures.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: t.textMuted,
-                                ),
                               ),
                             ],
                           ),
