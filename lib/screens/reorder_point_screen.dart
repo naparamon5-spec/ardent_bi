@@ -292,7 +292,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
                     selected: filters.dim('reorder', _dimension).contains(name));
               }).toList(),
               onBarTap: (c) => filters.toggleDim('reorder', _dimension, c),
-              types: const [BiChartType.bar, BiChartType.column, BiChartType.donut, BiChartType.treemap],
+              types: const [BiChartType.bar, BiChartType.column, BiChartType.treemap],
             ),
             const SizedBox(height: 16),
             BiChartCard(
@@ -302,7 +302,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
               bars: ((_verdict?['rows'] as List?) ?? const []).cast<Map>().map((r) {
                 return BarDatum((r['name'] ?? '—').toString(), (r['items'] as num?)?.toDouble() ?? 0);
               }).toList(),
-              types: const [BiChartType.bar, BiChartType.column, BiChartType.donut],
+              types: const [BiChartType.bar, BiChartType.column],
             ),
             const SizedBox(height: 16),
             _detailCard(t),

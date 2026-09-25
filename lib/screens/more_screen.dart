@@ -3,7 +3,8 @@ import 'package:provider/provider.dart';
 import '../state/auth_state.dart';
 import '../theme.dart';
 import 'account_screen.dart';
-import 'accrued_screen.dart';
+// Temporarily hidden — kept for quick restore.
+// import 'accrued_screen.dart';
 import 'periods_screen.dart';
 import 'reorder_point_screen.dart';
 
@@ -42,13 +43,15 @@ class MoreScreen extends StatelessWidget {
                 'What to order and how much',
                 () => open(const ReorderPointScreen()),
               ),
-            _tile(
-              t,
-              Icons.receipt_long_outlined,
-              'Accrued Incidentals',
-              'Charges booked against job orders',
-              () => open(const AccruedScreen()),
-            ),
+            // Accrued Incidentals — temporarily hidden (uncomment to restore,
+            // along with the accrued_screen.dart import above).
+            // _tile(
+            //   t,
+            //   Icons.receipt_long_outlined,
+            //   'Accrued Incidentals',
+            //   'Charges booked against job orders',
+            //   () => open(const AccruedScreen()),
+            // ),
             _tile(
               t,
               Icons.calendar_month_outlined,

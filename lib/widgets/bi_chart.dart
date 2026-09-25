@@ -75,15 +75,18 @@ class MarkLineSpec {
   const MarkLineSpec(this.name, this.value);
 }
 
-enum BiChartType { line, column, area, stacked, bar, donut, treemap, waterfall }
+enum BiChartType { line, column, area, stacked, stacked100, bar, pie, donut, funnel, treemap, waterfall }
 
 const _typeLabels = <BiChartType, String>{
   BiChartType.line: 'Line',
   BiChartType.column: 'Column',
   BiChartType.area: 'Area',
   BiChartType.stacked: 'Stacked column',
+  BiChartType.stacked100: '100% stacked',
   BiChartType.bar: 'Bar',
+  BiChartType.pie: 'Pie',
   BiChartType.donut: 'Donut',
+  BiChartType.funnel: 'Funnel',
   BiChartType.treemap: 'Treemap',
   BiChartType.waterfall: 'Waterfall',
 };
@@ -93,8 +96,11 @@ const _typeHints = <BiChartType, String>{
   BiChartType.column: 'Magnitude across periods',
   BiChartType.area: 'Change over time where the total matters',
   BiChartType.stacked: 'Composition within each period',
+  BiChartType.stacked100: 'Composition as a share of each period',
   BiChartType.bar: 'Ranked categories',
+  BiChartType.pie: 'Share of the total',
   BiChartType.donut: 'Share of the total',
+  BiChartType.funnel: 'Stages from largest to smallest',
   BiChartType.treemap: 'Relative size at a glance',
   BiChartType.waterfall: 'Cumulative effect of changes',
 };
@@ -171,6 +177,21 @@ class _BiChartCardState extends State<BiChartCard> {
   }
 
   bool get _seriesMode => widget.series.isNotEmpty;
+
+  /// Bars to draw for bar/pie/funnel/donut when the card was given series
+  /// instead of bars (e.g. the period charts): fall back to the first series,
+  /// one bar per category.
+  List<BarDatum> get _effectiveBars {
+    if (widget.bars.isNotEmpty) return widget.bars;
+    if (_seriesMode && widget.categories.isNotEmpty) {
+      final s = widget.series.first;
+      return [
+        for (var i = 0; i < widget.categories.length; i++)
+          BarDatum(widget.categories[i], i < s.data.length ? s.data[i] : 0),
+      ];
+    }
+    return const [];
+  }
 
   List<BiChartType> get _allowed =>
       widget.types ??
@@ -430,10 +451,16 @@ class _BiChartCardState extends State<BiChartCard> {
             : _BarsColumnView(bars: widget.bars, currency: widget.currency, signColors: widget.signColors, height: widget.height, onTap: widget.onBarTap, palette: widget.palette);
       case BiChartType.stacked:
         return _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: true, palette: widget.palette);
+      case BiChartType.stacked100:
+        return _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: true, normalize: true, palette: widget.palette);
       case BiChartType.bar:
-        return _HBarView(bars: widget.bars, currency: widget.currency, signColors: widget.signColors, onTap: widget.onBarTap, palette: widget.palette);
+        return _HBarView(bars: _effectiveBars, currency: widget.currency, percent: widget.percent, signColors: widget.signColors, onTap: widget.onBarTap, palette: widget.palette);
+      case BiChartType.pie:
+        return _DonutView(bars: _effectiveBars, currency: widget.currency, height: widget.height, hole: false);
       case BiChartType.donut:
-        return _DonutView(bars: widget.bars, currency: widget.currency, height: widget.height);
+        return _DonutView(bars: _effectiveBars, currency: widget.currency, height: widget.height);
+      case BiChartType.funnel:
+        return _FunnelView(bars: _effectiveBars, currency: widget.currency, percent: widget.percent, height: widget.height, palette: widget.palette);
       case BiChartType.treemap:
         return _TreemapView(bars: widget.bars, currency: widget.currency, height: widget.height);
       case BiChartType.waterfall:
@@ -683,6 +710,8 @@ class _ColumnsView extends StatelessWidget {
   final bool percent;
   final double height;
   final bool stacked;
+  /// 100% stacked: each category is scaled so its bars sum to 100%.
+  final bool normalize;
   final List<Color>? palette;
   const _ColumnsView({
     required this.categories,
@@ -690,28 +719,44 @@ class _ColumnsView extends StatelessWidget {
     required this.currency,
     required this.height,
     required this.stacked,
+    this.normalize = false,
     this.percent = false,
     this.palette,
   });
 
   List<Color> _colors(BiTokens t) => palette ?? t.series;
 
+  bool get _pct => percent || normalize;
+
+  /// Total across all series for a category (denominator for normalize).
+  double _catTotal(int x) {
+    double sum = 0;
+    for (final s in series) {
+      sum += s.data.length > x ? s.data[x] : 0.0;
+    }
+    return sum;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = BiTokens.of(context);
     if (categories.isEmpty) return _empty(t, height);
     double maxY = 0;
-    for (var x = 0; x < categories.length; x++) {
-      double per = 0;
-      for (final s in series) {
-        final v = s.data.length > x ? s.data[x] : 0.0;
-        if (stacked) {
-          per += v;
-        } else if (v > per) {
-          per = v;
+    if (normalize) {
+      maxY = 100;
+    } else {
+      for (var x = 0; x < categories.length; x++) {
+        double per = 0;
+        for (final s in series) {
+          final v = s.data.length > x ? s.data[x] : 0.0;
+          if (stacked) {
+            per += v;
+          } else if (v > per) {
+            per = v;
+          }
         }
+        if (per > maxY) maxY = per;
       }
-      if (per > maxY) maxY = per;
     }
     if (maxY == 0) maxY = 1;
 
@@ -723,7 +768,7 @@ class _ColumnsView extends StatelessWidget {
             BarChartData(
               alignment: BarChartAlignment.spaceAround,
               minY: 0,
-              maxY: maxY * 1.12,
+              maxY: normalize ? 100 : maxY * 1.12,
               gridData: FlGridData(
                 show: true,
                 drawVerticalLine: false,
@@ -731,12 +776,12 @@ class _ColumnsView extends StatelessWidget {
                 getDrawingHorizontalLine: (_) => FlLine(color: t.gridline, strokeWidth: 1),
               ),
               borderData: FlBorderData(show: false),
-              titlesData: _titles(t, categories, currency, maxY, percent: percent),
+              titlesData: _titles(t, categories, currency, maxY, percent: _pct),
               barTouchData: BarTouchData(
                 touchTooltipData: BarTouchTooltipData(
                   getTooltipColor: (_) => t.elevated,
                   getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem(
-                    percent ? Fmt.percent(rod.toY) : (currency ? Fmt.money(rod.toY) : Fmt.number(rod.toY)),
+                    _pct ? Fmt.percent(rod.toY) : (currency ? Fmt.money(rod.toY) : Fmt.number(rod.toY)),
                     TextStyle(
                       color: stacked ? _colors(t)[rodIndex % _colors(t).length] : rod.color ?? t.brand,
                       fontWeight: FontWeight.w600,
@@ -774,8 +819,10 @@ class _ColumnsView extends StatelessWidget {
   BarChartRodData _stackedRod(BiTokens t, int x) {
     final items = <BarChartRodStackItem>[];
     var from = 0.0;
+    final denom = normalize ? _catTotal(x) : 0.0;
     for (var i = 0; i < series.length; i++) {
-      final v = series[i].data.length > x ? series[i].data[x] : 0.0;
+      var v = series[i].data.length > x ? series[i].data[x] : 0.0;
+      if (normalize) v = denom == 0 ? 0.0 : v / denom * 100;
       items.add(BarChartRodStackItem(from, from + v, _colors(t)[i % _colors(t).length]));
       from += v;
     }
@@ -883,6 +930,7 @@ class _BarsColumnView extends StatelessWidget {
 class _HBarView extends StatelessWidget {
   final List<BarDatum> bars;
   final bool currency;
+  final bool percent;
   final bool signColors;
   final void Function(String category)? onTap;
   final List<Color>? palette;
@@ -890,6 +938,7 @@ class _HBarView extends StatelessWidget {
     required this.bars,
     required this.currency,
     required this.signColors,
+    this.percent = false,
     this.onTap,
     this.palette,
   });
@@ -948,7 +997,7 @@ class _HBarView extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(currency ? Fmt.money(b.value) : Fmt.number(b.value),
+              Text(percent ? Fmt.percent(b.value) : (currency ? Fmt.money(b.value) : Fmt.number(b.value)),
                   style: TextStyle(
                       fontSize: 12, fontWeight: FontWeight.w600, color: t.textSecondary)),
             ]),
@@ -983,7 +1032,9 @@ class _DonutView extends StatelessWidget {
   final List<BarDatum> bars;
   final bool currency;
   final double height;
-  const _DonutView({required this.bars, required this.currency, required this.height});
+  /// Donut (a hole with the total in the middle) vs. pie (solid, no hole).
+  final bool hole;
+  const _DonutView({required this.bars, required this.currency, required this.height, this.hole = true});
 
   @override
   Widget build(BuildContext context) {
@@ -1000,14 +1051,14 @@ class _DonutView extends StatelessWidget {
             PieChart(
               PieChartData(
                 sectionsSpace: 2,
-                centerSpaceRadius: height * 0.24,
+                centerSpaceRadius: hole ? height * 0.24 : 0,
                 startDegreeOffset: -90,
                 sections: [
                   for (var i = 0; i < slices.length; i++)
                     PieChartSectionData(
                       value: slices[i].value,
                       color: t.series[i % t.series.length],
-                      radius: height * 0.19,
+                      radius: hole ? height * 0.19 : height * 0.42,
                       title: slices[i].value / total >= 0.07
                           ? '${(slices[i].value / total * 100).round()}%'
                           : '',
@@ -1017,11 +1068,12 @@ class _DonutView extends StatelessWidget {
                 ],
               ),
             ),
-            Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(currency ? Fmt.compact(total) : Fmt.number(total),
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: t.textPrimary)),
-              Text('Total', style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, color: t.textMuted)),
-            ]),
+            if (hole)
+              Column(mainAxisSize: MainAxisSize.min, children: [
+                Text(currency ? Fmt.compact(total) : Fmt.number(total),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: t.textPrimary)),
+                Text('Total', style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, color: t.textMuted)),
+              ]),
           ]),
         ),
         const SizedBox(height: 12),
@@ -1040,6 +1092,71 @@ class _DonutView extends StatelessWidget {
               ]),
           ],
         ),
+      ],
+    );
+  }
+}
+
+/// Funnel — stages sorted largest to smallest as centered, tapering bars. Width
+/// encodes each stage's value relative to the largest; the label shows its share.
+class _FunnelView extends StatelessWidget {
+  final List<BarDatum> bars;
+  final bool currency;
+  final bool percent;
+  final double height;
+  final List<Color>? palette;
+  const _FunnelView({required this.bars, required this.currency, required this.height, this.percent = false, this.palette});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = BiTokens.of(context);
+    final items = bars.where((b) => b.value > 0).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (items.isEmpty) return _empty(t, height);
+    final colors = palette ?? t.series;
+    final maxV = items.first.value;
+    final total = items.fold<double>(0, (a, b) => a + b.value);
+    final barH = ((height - (items.length - 1) * 8) / items.length).clamp(20.0, 60.0);
+
+    return Column(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Expanded(
+                  child: Text(items[i].name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: t.textPrimary, fontWeight: FontWeight.w500)),
+                ),
+                const SizedBox(width: 8),
+                Text(percent ? Fmt.percent(items[i].value) : (currency ? Fmt.money(items[i].value) : Fmt.number(items[i].value)),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textSecondary)),
+              ]),
+              const SizedBox(height: 4),
+              Center(
+                child: FractionallySizedBox(
+                  widthFactor: maxV == 0 ? 0.02 : (items[i].value / maxV).clamp(0.04, 1.0),
+                  child: Container(
+                    height: barH,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colors[i % colors.length],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      total == 0 ? '' : '${(items[i].value / total * 100).round()}%',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
