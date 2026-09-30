@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../api.dart';
 import '../state/auth_state.dart';
@@ -14,10 +15,28 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _user = TextEditingController();
   final _pass = TextEditingController();
+  final _packageInfo = PackageInfo.fromPlatform();
   bool _obscure = true;
   bool _submitting = false;
   bool _remember = false;
   String? _error;
+
+  // Triple-tap on the logo unlocks demo mode (App Store screenshot capture).
+  int _logoTaps = 0;
+  DateTime _lastLogoTap = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onLogoTap() {
+    final now = DateTime.now();
+    if (now.difference(_lastLogoTap) > const Duration(milliseconds: 800)) {
+      _logoTaps = 0;
+    }
+    _lastLogoTap = now;
+    _logoTaps++;
+    if (_logoTaps >= 3) {
+      _logoTaps = 0;
+      context.read<AuthState>().enterDemo();
+    }
+  }
 
   @override
   void initState() {
@@ -84,22 +103,27 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: Column(
                   children: [
-                    Container(
-                      width: 92,
-                      height: 92,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
-                            blurRadius: 18,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
+                    // Triple-tap the logo to enter demo mode (used for App
+                    // Store screenshots; invisible to normal users).
+                    GestureDetector(
+                      onTap: _onLogoTap,
+                      child: Container(
+                        width: 92,
+                        height: 92,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.25),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        alignment: Alignment.center,
+                        child: Image.asset('assets/logo_mark.png', width: 56),
                       ),
-                      alignment: Alignment.center,
-                      child: Image.asset('assets/logo_mark.png', width: 56),
                     ),
                     const SizedBox(height: 20),
                     RichText(
@@ -147,149 +171,195 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 420),
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Sign in',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: t.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Access your dashboards and reports',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: t.textMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 18),
-                              if (_error != null) ...[
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.critical.withValues(
-                                      alpha: 0.10,
-                                    ),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: AppColors.critical.withValues(
-                                        alpha: 0.4,
-                                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    'Sign in',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      color: t.textPrimary,
                                     ),
                                   ),
-                                  child: Text(
-                                    _error!,
-                                    style: const TextStyle(
-                                      color: AppColors.critical,
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Access your dashboards and reports',
+                                    style: TextStyle(
                                       fontSize: 12.5,
+                                      color: t.textMuted,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                              TextField(
-                                controller: _user,
-                                autofillHints: const [AutofillHints.username],
-                                textInputAction: TextInputAction.next,
-                                decoration: const InputDecoration(
-                                  labelText: 'Username',
-                                  prefixIcon: Icon(Icons.person_outline),
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              TextField(
-                                controller: _pass,
-                                obscureText: _obscure,
-                                autofillHints: const [AutofillHints.password],
-                                onSubmitted: (_) => _submit(),
-                                decoration: InputDecoration(
-                                  labelText: 'Password',
-                                  prefixIcon: const Icon(Icons.lock_outline),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscure
-                                          ? Icons.visibility_outlined
-                                          : Icons.visibility_off_outlined,
+                                  const SizedBox(height: 18),
+                                  if (_error != null) ...[
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.critical.withValues(
+                                          alpha: 0.10,
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: AppColors.critical.withValues(
+                                            alpha: 0.4,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _error!,
+                                        style: const TextStyle(
+                                          color: AppColors.critical,
+                                          fontSize: 12.5,
+                                        ),
+                                      ),
                                     ),
-                                    onPressed: () =>
-                                        setState(() => _obscure = !_obscure),
+                                    const SizedBox(height: 16),
+                                  ],
+                                  TextField(
+                                    controller: _user,
+                                    autofillHints: const [AutofillHints.username],
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Username',
+                                      prefixIcon: Icon(Icons.person_outline),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              InkWell(
-                                onTap: _submitting
-                                    ? null
-                                    : () => setState(() => _remember = !_remember),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Row(
-                                    children: [
-                                      SizedBox(
-                                        height: 24,
-                                        width: 24,
-                                        child: Checkbox(
-                                          value: _remember,
-                                          onChanged: _submitting
-                                              ? null
-                                              : (v) => setState(
-                                                    () => _remember = v ?? false,
-                                                  ),
-                                          activeColor: t.brand,
-                                          materialTapTargetSize:
-                                              MaterialTapTargetSize.shrinkWrap,
+                                  const SizedBox(height: 14),
+                                  TextField(
+                                    controller: _pass,
+                                    obscureText: _obscure,
+                                    autofillHints: const [AutofillHints.password],
+                                    onSubmitted: (_) => _submit(),
+                                    decoration: InputDecoration(
+                                      labelText: 'Password',
+                                      prefixIcon: const Icon(Icons.lock_outline),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(
+                                          _obscure
+                                              ? Icons.visibility_outlined
+                                              : Icons.visibility_off_outlined,
                                         ),
+                                        onPressed: () =>
+                                            setState(() => _obscure = !_obscure),
                                       ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        'Remember me',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: t.textSecondary,
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              FilledButton(
-                                onPressed: _submitting ? null : _submit,
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  backgroundColor: t.brand,
-                                  foregroundColor: t.brandInk,
-                                ),
-                                child: _submitting
-                                    ? SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: t.brandInk,
-                                        ),
-                                      )
-                                    : const Text(
-                                        'Login',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                  const SizedBox(height: 8),
+                                  InkWell(
+                                    onTap: _submitting
+                                        ? null
+                                        : () => setState(() => _remember = !_remember),
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 4),
+                                      child: Row(
+                                        children: [
+                                          SizedBox(
+                                            height: 24,
+                                            width: 24,
+                                            child: Checkbox(
+                                              value: _remember,
+                                              onChanged: _submitting
+                                                  ? null
+                                                  : (v) => setState(
+                                                        () => _remember = v ?? false,
+                                                      ),
+                                              activeColor: t.brand,
+                                              materialTapTargetSize:
+                                                  MaterialTapTargetSize.shrinkWrap,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Text(
+                                            'Remember me',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: t.textSecondary,
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  FilledButton(
+                                    onPressed: _submitting ? null : _submit,
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      backgroundColor: t.brand,
+                                      foregroundColor: t.brandInk,
+                                    ),
+                                    child: _submitting
+                                        ? SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: t.brandInk,
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Login',
+                                            style: TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 20),
+                          FutureBuilder<PackageInfo>(
+                            future: _packageInfo,
+                            builder: (context, snap) {
+                              final v = snap.hasData ? snap.data!.version : '';
+                              return Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    'ArdentBI',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: t.textMuted,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: t.textMuted,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'v$v',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: t.textMuted,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                       ),
                     ),
                   ),

@@ -105,3 +105,73 @@ class ChipChooser<T> extends StatelessWidget {
     );
   }
 }
+
+/// Year + quarter selector row for period screens.
+class YearQuarterSelector extends StatelessWidget {
+  final int year;
+  final String? quarter; // null = all quarters
+  final List<int> years;
+  final ValueChanged<int> onYearChanged;
+  final ValueChanged<String?> onQuarterChanged;
+  const YearQuarterSelector({
+    super.key,
+    required this.year,
+    this.quarter,
+    this.years = const [2026, 2025, 2024, 2023],
+    required this.onYearChanged,
+    required this.onQuarterChanged,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final t = BiTokens.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(
+          child: _eyebrow(t, 'YEAR'),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _eyebrow(t, 'QUARTER'),
+        ),
+      ]),
+      const SizedBox(height: 8),
+      Row(children: [
+        Expanded(
+          child: Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final y in years)
+              FilterChip(
+                label: Text('$y'),
+                selected: year == y,
+                onSelected: (s) {
+                  if (s) onYearChanged(y);
+                },
+              ),
+          ]),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Wrap(spacing: 6, runSpacing: 6, children: [
+            FilterChip(
+              label: const Text('All'),
+              selected: quarter == null,
+              onSelected: (s) {
+                if (s) onQuarterChanged(null);
+              },
+            ),
+            for (final q in ['Q1', 'Q2', 'Q3', 'Q4'])
+              FilterChip(
+                label: Text(q),
+                selected: quarter == q,
+                onSelected: (s) {
+                  onQuarterChanged(s ? q : null);
+                },
+              ),
+          ]),
+        ),
+      ]),
+    ]);
+  }
+
+  Widget _eyebrow(BiTokens t, String s) => Text(s.toUpperCase(),
+      style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted));
+}

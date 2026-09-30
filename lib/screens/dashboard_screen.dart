@@ -10,7 +10,6 @@ import '../theme.dart';
 import '../widgets/bi_chart.dart';
 import '../widgets/insights_sheet.dart';
 import '../widgets/kpi_tile.dart';
-import '../widgets/filter_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -121,7 +120,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text('Overview'),
         actions: [
           _InsightsButton(count: _insights.length, onTap: () => _showInsights(context)),
-          _FilterButton(count: filters.activeSalesCount, onTap: () => showSalesFilterSheet(context)),
         ],
       ),
       body: RefreshIndicator(
@@ -382,34 +380,5 @@ class _InsightsButton extends StatelessWidget {
           ),
         ),
     ]);
-  }
-}
-
-class _FilterButton extends StatelessWidget {
-  final int count;
-  final VoidCallback onTap;
-  const _FilterButton({required this.count, required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    final t = BiTokens.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Stack(clipBehavior: Clip.none, children: [
-        IconButton(onPressed: onTap, icon: const Icon(Icons.tune)),
-        if (count > 0)
-          Positioned(
-            right: 4,
-            top: 4,
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(color: t.brandSoft, shape: BoxShape.circle),
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              child: Text('$count',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: t.brand, fontSize: 9, fontWeight: FontWeight.w700)),
-            ),
-          ),
-      ]),
-    );
   }
 }

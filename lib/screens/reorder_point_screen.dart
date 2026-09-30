@@ -98,7 +98,10 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
   static String _labelFor(List<Map<String, dynamic>> opts, String key) =>
       (opts.firstWhere((d) => d['key'] == key, orElse: () => {'label': key})['label'] ?? key).toString();
 
-  Map<String, dynamic> get _body => {'filters': _filters.payload('reorder')};
+  Map<String, dynamic> get _body => {
+    'filters': _filters.payload('reorder'),
+    if (_filters.toOrderOnlyOf('reorder')) 'toOrderOnly': true,
+  };
 
   Future<Map<String, dynamic>?> _tryPost(String path, Object body) async {
     try {

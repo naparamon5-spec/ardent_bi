@@ -56,6 +56,18 @@ class AuthState extends ChangeNotifier {
   bool get isBuHeadOrAbove =>
       const ['executive', 'salesBuHead', 'marketingBuHead'].contains(access?['level']);
 
+  /// Enter demo mode: bypass the network with canned data. Used for App Store
+  /// screenshot capture and offline UI walkthroughs. Not persisted.
+  void enterDemo() {
+    api.demo = true;
+    api.token = 'demo-token';
+    user = {'id': 0, 'username': 'demo', 'name': 'Demo User', 'role': 'admin'};
+    access = {'enforced': false, 'deny': false, 'level': 'executive'};
+    notifyListeners();
+  }
+
+  bool get isDemo => api.demo;
+
   /// True when the resolved access rules claim no rows for this account.
   bool get hasNoData => (access?['enforced'] == true) && (access?['deny'] == true);
 
@@ -110,6 +122,8 @@ class AuthState extends ChangeNotifier {
 
     await _saveLastActive();
     if (isAuthenticated) _startIdleTimer();
+    // Hold the splash briefly on first launch so the brand mark is visible.
+    await Future.delayed(const Duration(milliseconds: 1500));
     booting = false;
     notifyListeners();
   }

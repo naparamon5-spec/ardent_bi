@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:share_plus/share_plus.dart';
 import '../format.dart';
@@ -137,6 +138,7 @@ class BiChartCard extends StatefulWidget {
   /// Per-chart insights — the bulb in the card header opens them inline, the
   /// mobile stand-in for the web's per-visual insight panel.
   final List<Map<String, dynamic>> insights;
+  final bool showFullscreen;
 
   const BiChartCard({
     super.key,
@@ -157,6 +159,7 @@ class BiChartCard extends StatefulWidget {
     this.initialType,
     this.palette,
     this.insights = const [],
+    this.showFullscreen = true,
   });
 
   @override
@@ -205,8 +208,40 @@ class _BiChartCardState extends State<BiChartCard> {
   String get _slug =>
       widget.title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '');
 
-  String _fmt(double v) =>
-      widget.percent ? '${v.toStringAsFixed(1)}%' : (widget.currency ? Fmt.compact(v) : Fmt.number(v));
+  Future<void> _openFullscreen() async {
+    final result = await Navigator.of(context).push<_FullscreenResult>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => _BiChartFullscreenPage(
+          title: widget.title,
+          subtitle: widget.subtitle,
+          categories: widget.categories,
+          series: widget.series,
+          bars: widget.bars,
+          currency: widget.currency,
+          percent: widget.percent,
+          signColors: widget.signColors,
+          defaultHeight: widget.height,
+          above: widget.above,
+          onBarTap: widget.onBarTap,
+          allowedTypes: _allowed,
+          markLines: widget.markLines,
+          palette: widget.palette,
+          insights: widget.insights,
+          effectiveType: _effective,
+          initialTable: _table,
+          initialShowInsights: _showInsights,
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _type = result.type;
+        _table = result.table;
+        _showInsights = result.showInsights;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +267,10 @@ class _BiChartCardState extends State<BiChartCard> {
                 _insightsPill(t),
                 const SizedBox(width: 4),
               ],
+              if (widget.showFullscreen) ...[
+                _fullscreenButton(t),
+                const SizedBox(width: 4),
+              ],
               _tablePill(t),
               const SizedBox(width: 4),
               _cardMenu(t),
@@ -247,7 +286,29 @@ class _BiChartCardState extends State<BiChartCard> {
             ],
             RepaintBoundary(
               key: _shotKey,
-              child: _table ? _tableView(t) : _chart(t),
+              child: _table
+                  ? _BiChartTableView(
+                      categories: widget.categories,
+                      series: widget.series,
+                      bars: _effectiveBars,
+                      currency: widget.currency,
+                      percent: widget.percent,
+                    )
+                  : _buildChartContent(
+                      t: t,
+                      type: _effective,
+                      seriesMode: _seriesMode,
+                      categories: widget.categories,
+                      series: widget.series,
+                      bars: _effectiveBars,
+                      currency: widget.currency,
+                      percent: widget.percent,
+                      signColors: widget.signColors,
+                      height: widget.height,
+                      markLines: widget.markLines,
+                      palette: widget.palette,
+                      onBarTap: widget.onBarTap,
+                    ),
             ),
           ],
         ),
@@ -303,6 +364,17 @@ class _BiChartCardState extends State<BiChartCard> {
           InsightTile(item: widget.insights[i]),
         ],
       ]),
+    );
+  }
+
+  Widget _fullscreenButton(BiTokens t) {
+    return InkWell(
+      onTap: _openFullscreen,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        child: Icon(Icons.fullscreen, size: 20, color: t.textSecondary),
+      ),
     );
   }
 
@@ -439,46 +511,83 @@ class _BiChartCardState extends State<BiChartCard> {
     return cell;
   }
 
-  Widget _chart(BiTokens t) {
-    switch (_effective) {
-      case BiChartType.line:
-        return _LineView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, fill: false, markLines: widget.markLines);
-      case BiChartType.area:
-        return _LineView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, fill: true, markLines: widget.markLines);
-      case BiChartType.column:
-        return _seriesMode
-            ? _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: false, palette: widget.palette)
-            : _BarsColumnView(bars: widget.bars, currency: widget.currency, signColors: widget.signColors, height: widget.height, onTap: widget.onBarTap, palette: widget.palette);
-      case BiChartType.stacked:
-        return _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: true, palette: widget.palette);
-      case BiChartType.stacked100:
-        return _ColumnsView(categories: widget.categories, series: widget.series, currency: widget.currency, percent: widget.percent, height: widget.height, stacked: true, normalize: true, palette: widget.palette);
-      case BiChartType.bar:
-        return _HBarView(bars: _effectiveBars, currency: widget.currency, percent: widget.percent, signColors: widget.signColors, onTap: widget.onBarTap, palette: widget.palette);
-      case BiChartType.pie:
-        return _DonutView(bars: _effectiveBars, currency: widget.currency, height: widget.height, hole: false);
-      case BiChartType.donut:
-        return _DonutView(bars: _effectiveBars, currency: widget.currency, height: widget.height);
-      case BiChartType.funnel:
-        return _FunnelView(bars: _effectiveBars, currency: widget.currency, percent: widget.percent, height: widget.height, palette: widget.palette);
-      case BiChartType.treemap:
-        return _TreemapView(bars: widget.bars, currency: widget.currency, height: widget.height);
-      case BiChartType.waterfall:
-        return _WaterfallView(bars: widget.bars, currency: widget.currency, height: widget.height);
-    }
-  }
+}
 
-  Widget _tableView(BiTokens t) {
-    final headers = _seriesMode
-        ? ['Category', for (final s in widget.series) s.name]
+Widget _buildChartContent({
+  required BiTokens t,
+  required BiChartType type,
+  required bool seriesMode,
+  required List<String> categories,
+  required List<SeriesSpec> series,
+  required List<BarDatum> bars,
+  required bool currency,
+  required bool percent,
+  required bool signColors,
+  required double height,
+  required List<MarkLineSpec> markLines,
+  required List<Color>? palette,
+  required void Function(String category)? onBarTap,
+}) {
+  switch (type) {
+    case BiChartType.line:
+      return _LineView(categories: categories, series: series, currency: currency, percent: percent, height: height, fill: false, markLines: markLines);
+    case BiChartType.area:
+      return _LineView(categories: categories, series: series, currency: currency, percent: percent, height: height, fill: true, markLines: markLines);
+    case BiChartType.column:
+      return seriesMode
+          ? _ColumnsView(categories: categories, series: series, currency: currency, percent: percent, height: height, stacked: false, palette: palette)
+          : _BarsColumnView(bars: bars, currency: currency, signColors: signColors, height: height, onTap: onBarTap, palette: palette);
+    case BiChartType.stacked:
+      return _ColumnsView(categories: categories, series: series, currency: currency, percent: percent, height: height, stacked: true, palette: palette);
+    case BiChartType.stacked100:
+      return _ColumnsView(categories: categories, series: series, currency: currency, percent: percent, height: height, stacked: true, normalize: true, palette: palette);
+    case BiChartType.bar:
+      return _HBarView(bars: bars, currency: currency, percent: percent, signColors: signColors, onTap: onBarTap, palette: palette);
+    case BiChartType.pie:
+      return _DonutView(bars: bars, currency: currency, height: height, hole: false);
+    case BiChartType.donut:
+      return _DonutView(bars: bars, currency: currency, height: height);
+    case BiChartType.funnel:
+      return _FunnelView(bars: bars, currency: currency, percent: percent, height: height, palette: palette);
+    case BiChartType.treemap:
+      return _TreemapView(bars: bars, currency: currency, height: height);
+    case BiChartType.waterfall:
+      return _WaterfallView(bars: bars, currency: currency, height: height);
+  }
+}
+
+class _BiChartTableView extends StatelessWidget {
+  final List<String> categories;
+  final List<SeriesSpec> series;
+  final List<BarDatum> bars;
+  final bool currency;
+  final bool percent;
+
+  const _BiChartTableView({
+    required this.categories,
+    required this.series,
+    required this.bars,
+    required this.currency,
+    required this.percent,
+  });
+
+  String _fmt(double v) =>
+      percent ? '${v.toStringAsFixed(1)}%' : (currency ? Fmt.compact(v) : Fmt.number(v));
+
+  @override
+  Widget build(BuildContext context) {
+    final t = BiTokens.of(context);
+    final seriesMode = series.isNotEmpty;
+    final headers = seriesMode
+        ? ['Category', for (final s in series) s.name]
         : ['Category', 'Value'];
-    final rows = _seriesMode
+    final rows = seriesMode
         ? [
-            for (var r = 0; r < widget.categories.length; r++)
-              [widget.categories[r], for (final s in widget.series) _fmt(s.data.length > r ? s.data[r] : 0)],
+            for (var r = 0; r < categories.length; r++)
+              [categories[r], for (final s in series) _fmt(s.data.length > r ? s.data[r] : 0)],
           ]
         : [
-            for (final b in widget.bars) [b.name, _fmt(b.value)],
+            for (final b in bars) [b.name, _fmt(b.value)],
           ];
     if (rows.isEmpty) {
       return Padding(
@@ -487,13 +596,21 @@ class _BiChartCardState extends State<BiChartCard> {
       );
     }
     return LayoutBuilder(
-      builder: (context, cons) => ConstrainedBox(
-        constraints: BoxConstraints(minWidth: cons.maxWidth),
-        child: Table(
+      builder: (context, cons) {
+        final availableWidth = cons.maxWidth;
+        final double otherColsWidth = (headers.length - 1) * 104.0;
+        final double minCol0Width = 120.0;
+        final double totalNeeded = minCol0Width + otherColsWidth;
+        final bool shouldScroll = totalNeeded > availableWidth;
+
+        final table = Table(
           columnWidths: {
-            0: const FlexColumnWidth(1.4),
+            0: shouldScroll
+                ? const FixedColumnWidth(130)
+                : const FlexColumnWidth(1.4),
             for (var c = 1; c < headers.length; c++) c: const FixedColumnWidth(104),
           },
+          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
           children: [
             TableRow(
               children: [
@@ -503,7 +620,12 @@ class _BiChartCardState extends State<BiChartCard> {
                     child: Text(
                       headers[c].toUpperCase(),
                       textAlign: c == 0 ? TextAlign.left : TextAlign.right,
-                      style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted),
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        letterSpacing: 0.5,
+                        fontWeight: FontWeight.w600,
+                        color: t.textMuted,
+                      ),
                     ),
                   ),
               ],
@@ -530,6 +652,470 @@ class _BiChartCardState extends State<BiChartCard> {
                 ],
               ),
           ],
+        );
+
+        if (shouldScroll) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: table,
+          );
+        }
+
+        return ConstrainedBox(
+          constraints: BoxConstraints(minWidth: availableWidth),
+          child: table,
+        );
+      },
+    );
+  }
+}
+
+class _FullscreenResult {
+  final BiChartType? type;
+  final bool table;
+  final bool showInsights;
+  const _FullscreenResult({
+    required this.type,
+    required this.table,
+    required this.showInsights,
+  });
+}
+
+class _BiChartFullscreenPage extends StatefulWidget {
+  final String title;
+  final String? subtitle;
+  final List<String> categories;
+  final List<SeriesSpec> series;
+  final List<BarDatum> bars;
+  final bool currency;
+  final bool percent;
+  final bool signColors;
+  final double defaultHeight;
+  final Widget? above;
+  final void Function(String category)? onBarTap;
+  final List<BiChartType> allowedTypes;
+  final List<MarkLineSpec> markLines;
+  final List<Color>? palette;
+  final List<Map<String, dynamic>> insights;
+  final BiChartType effectiveType;
+  final bool initialTable;
+  final bool initialShowInsights;
+
+  const _BiChartFullscreenPage({
+    required this.title,
+    this.subtitle,
+    required this.categories,
+    required this.series,
+    required this.bars,
+    required this.currency,
+    required this.percent,
+    required this.signColors,
+    required this.defaultHeight,
+    this.above,
+    this.onBarTap,
+    required this.allowedTypes,
+    required this.markLines,
+    this.palette,
+    required this.insights,
+    required this.effectiveType,
+    required this.initialTable,
+    required this.initialShowInsights,
+  });
+
+  @override
+  State<_BiChartFullscreenPage> createState() => _BiChartFullscreenPageState();
+}
+
+class _BiChartFullscreenPageState extends State<_BiChartFullscreenPage> {
+  late BiChartType? _type;
+  late bool _table;
+  late bool _showInsights;
+  final GlobalKey _shotKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _type = widget.effectiveType;
+    _table = widget.initialTable;
+    _showInsights = widget.initialShowInsights;
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+    super.dispose();
+  }
+
+  void _toggleOrientation() {
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    if (isLandscape) {
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+  }
+
+  bool get _seriesMode => widget.series.isNotEmpty;
+
+  List<BarDatum> get _effectiveBars {
+    if (widget.bars.isNotEmpty) return widget.bars;
+    if (_seriesMode && widget.categories.isNotEmpty) {
+      final s = widget.series.first;
+      return [
+        for (var i = 0; i < widget.categories.length; i++)
+          BarDatum(widget.categories[i], i < s.data.length ? s.data[i] : 0),
+      ];
+    }
+    return const [];
+  }
+
+  BiChartType get _effective =>
+      _type ?? (_seriesMode ? BiChartType.line : BiChartType.bar);
+
+  String get _slug =>
+      widget.title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '');
+
+  _FullscreenResult get _result => _FullscreenResult(
+        type: _type,
+        table: _table,
+        showInsights: _showInsights,
+      );
+
+  Future<void> _downloadPng() async {
+    final ctx = _shotKey.currentContext;
+    if (ctx == null) return;
+    final boundary = ctx.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return;
+    final image = await boundary.toImage(pixelRatio: 3);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) return;
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile.fromData(bytes.buffer.asUint8List(), mimeType: 'image/png', name: '$_slug.png')],
+      subject: widget.title,
+    ));
+  }
+
+  Future<void> _downloadCsv() async {
+    final lines = <String>[];
+    if (_seriesMode) {
+      lines.add(['Category', for (final s in widget.series) s.name].map(_BiChartCardState._csvRow).join(','));
+      for (var r = 0; r < widget.categories.length; r++) {
+        lines.add([
+          widget.categories[r],
+          for (final s in widget.series)
+            (s.data.length > r ? s.data[r] : 0.0).toStringAsFixed(2),
+        ].map(_BiChartCardState._csvRow).join(','));
+      }
+    } else {
+      lines.add('Category,Value');
+      for (final b in widget.bars) {
+        lines.add([b.name, b.value.toStringAsFixed(2)].map(_BiChartCardState._csvRow).join(','));
+      }
+    }
+    final bytes = utf8.encode(lines.join('\n'));
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile.fromData(bytes, mimeType: 'text/csv', name: '$_slug.csv')],
+      subject: widget.title,
+    ));
+  }
+
+  Widget _insightsPill(BiTokens t) {
+    final on = _showInsights;
+    return InkWell(
+      onTap: () => setState(() => _showInsights = !_showInsights),
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: on ? t.brandSoft : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: on ? t.brand.withValues(alpha: 0.22) : Colors.transparent),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(on ? Icons.lightbulb : Icons.lightbulb_outline,
+              size: 15, color: on ? t.brand : t.textSecondary),
+          const SizedBox(width: 4),
+          Text('${widget.insights.length}',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: on ? t.brand : t.textSecondary)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _tablePill(BiTokens t) {
+    final on = _table;
+    return InkWell(
+      onTap: () => setState(() => _table = !_table),
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: on ? t.brandSoft : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: on ? t.brand.withValues(alpha: 0.22) : Colors.transparent),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.table_view_outlined, size: 15, color: on ? t.brand : t.textSecondary),
+          const SizedBox(width: 4),
+          Text('Table',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: on ? t.brand : t.textSecondary)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _cardMenu(BiTokens t) {
+    final current = _effective;
+    return PopupMenuButton<_MenuChoice>(
+      tooltip: 'Chart options',
+      onSelected: (choice) {
+        if (choice.type != null) {
+          setState(() => _type = choice.type);
+        } else if (choice.action == 'png') {
+          _downloadPng();
+        } else if (choice.action == 'csv') {
+          _downloadCsv();
+        }
+      },
+      itemBuilder: (_) => [
+        for (final v in widget.allowedTypes)
+          PopupMenuItem<_MenuChoice>(
+            value: _MenuChoice.type(v),
+            height: 52,
+            child: Row(children: [
+              Icon(Icons.check, size: 16, color: v == current ? t.brand : Colors.transparent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text(_typeLabels[v]!,
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: t.textPrimary)),
+                  Text(_typeHints[v]!, style: TextStyle(fontSize: 11, color: t.textMuted)),
+                ]),
+              ),
+            ]),
+          ),
+        const PopupMenuDivider(height: 8),
+        PopupMenuItem<_MenuChoice>(
+          value: const _MenuChoice.action('png'),
+          height: 44,
+          child: Row(children: [
+            Icon(Icons.image_outlined, size: 17, color: t.textSecondary),
+            const SizedBox(width: 10),
+            Text('Download PNG',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: t.textPrimary)),
+          ]),
+        ),
+        PopupMenuItem<_MenuChoice>(
+          value: const _MenuChoice.action('csv'),
+          height: 44,
+          child: Row(children: [
+            Icon(Icons.table_chart_outlined, size: 17, color: t.textSecondary),
+            const SizedBox(width: 10),
+            Text('Download CSV',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: t.textPrimary)),
+          ]),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(_typeLabels[current]!,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textSecondary)),
+          Icon(Icons.arrow_drop_down, size: 18, color: t.textSecondary),
+        ]),
+      ),
+    );
+  }
+
+  Widget _insightsPanel(BiTokens t) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: t.plane,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: t.gridline),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Why this chart matters',
+            style: TextStyle(fontSize: 11, letterSpacing: 0.4, fontWeight: FontWeight.w700, color: t.textMuted)),
+        const SizedBox(height: 10),
+        for (var i = 0; i < widget.insights.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          InsightTile(item: widget.insights[i]),
+        ],
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = BiTokens.of(context);
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        Navigator.of(context).pop(_result);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: AppColors.chromeBg,
+          foregroundColor: AppColors.chromeText,
+          systemOverlayStyle: SystemUiOverlayStyle.light,
+          automaticallyImplyLeading: false,
+          leading: IconButton(
+            icon: const Icon(Icons.close, color: AppColors.chromeText),
+            tooltip: 'Exit full screen',
+            onPressed: () => Navigator.of(context).pop(_result),
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.title,
+                style: const TextStyle(
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.chromeText,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (widget.subtitle != null) ...[
+                const SizedBox(height: 1),
+                Text(
+                  widget.subtitle!,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppColors.chromeTextSecondary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: Icon(
+                isLandscape ? Icons.stay_current_portrait_outlined : Icons.screen_rotation_outlined,
+                color: AppColors.chromeText,
+                size: 21,
+              ),
+              tooltip: isLandscape ? 'Portrait view' : 'Rotate to landscape',
+              onPressed: _toggleOrientation,
+            ),
+            IconButton(
+              icon: const Icon(Icons.fullscreen_exit, color: AppColors.chromeText, size: 23),
+              tooltip: 'Exit full screen',
+              onPressed: () => Navigator.of(context).pop(_result),
+            ),
+            const SizedBox(width: 4),
+          ],
+        ),
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, cons) {
+              final double dynamicHeight = isLandscape
+                  ? (cons.maxHeight - 110).clamp(200.0, 360.0)
+                  : (cons.maxWidth * 0.75).clamp(240.0, 320.0);
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_showInsights && widget.insights.isNotEmpty) ...[
+                      _insightsPanel(t),
+                      const SizedBox(height: 12),
+                    ],
+                    if (widget.above != null) ...[
+                      widget.above!,
+                      const SizedBox(height: 12),
+                    ],
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _table ? 'Data table' : (_typeLabels[_effective] ?? 'Chart'),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: t.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                                if (widget.insights.isNotEmpty) ...[
+                                  _insightsPill(t),
+                                  const SizedBox(width: 8),
+                                ],
+                                _tablePill(t),
+                                const SizedBox(width: 8),
+                                _cardMenu(t),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            RepaintBoundary(
+                              key: _shotKey,
+                              child: _table
+                                  ? _BiChartTableView(
+                                      categories: widget.categories,
+                                      series: widget.series,
+                                      bars: _effectiveBars,
+                                      currency: widget.currency,
+                                      percent: widget.percent,
+                                    )
+                                  : _buildChartContent(
+                                      t: t,
+                                      type: _effective,
+                                      seriesMode: _seriesMode,
+                                      categories: widget.categories,
+                                      series: widget.series,
+                                      bars: _effectiveBars,
+                                      currency: widget.currency,
+                                      percent: widget.percent,
+                                      signColors: widget.signColors,
+                                      height: dynamicHeight,
+                                      markLines: widget.markLines,
+                                      palette: widget.palette,
+                                      onBarTap: widget.onBarTap,
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );

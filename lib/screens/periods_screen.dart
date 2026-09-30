@@ -37,6 +37,8 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
   String _mode = 'yoy';
   String _measure = 'sales';
   bool _likeForLike = true;
+  int _selectedYear = DateTime.now().year;
+  String? _selectedQuarter;
 
   static const _modes = {'yoy': 'Year on year', 'qoq': 'Quarter on quarter', 'mom': 'Month on month'};
   static const _measures = {'sales': 'Net sales', 'grossProfit': 'Gross profit', 'qty': 'Quantity'};
@@ -65,7 +67,8 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
   }
 
   Map<String, dynamic> get _body =>
-      {'filters': _filters.payload('periods'), 'mode': _mode, 'likeForLike': _likeForLike};
+      {'filters': _filters.payload('periods'), 'mode': _mode, 'likeForLike': _likeForLike,
+       if (_selectedQuarter != null) 'quarter': _selectedQuarter};
 
   Future<Map<String, dynamic>?> _tryPost(String path, Object body) async {
     try {

@@ -10,7 +10,7 @@ import 'package:ardent_bi/widgets/bi_chart.dart';
 void main() {
   testWidgets('App boots to the sign-in screen', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ArdentBiApp());
+    await tester.pumpWidget(ArdentBiApp());
     await tester.pumpAndSettle();
 
     expect(find.text('Ardent BI'), findsWidgets);
@@ -68,7 +68,7 @@ void main() {
 
   testWidgets('Overview shows insights and the brand by quarter pivot in demo mode', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ArdentBiApp());
+    await tester.pumpWidget(ArdentBiApp());
     await tester.pumpAndSettle();
 
     final demo = find.text('Preview the UI (demo data)');
@@ -88,5 +88,68 @@ void main() {
     await tester.tap(find.byIcon(Icons.auto_awesome_outlined));
     await tester.pumpAndSettle();
     expect(find.text('Net sales up 12.4% on the prior period'), findsOneWidget);
+  });
+
+  testWidgets('Fullscreen button opens full screen view and exits cleanly', (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: const Scaffold(
+        body: SingleChildScrollView(
+          child: BiChartCard(
+            title: 'Net sales and gross profit by month',
+            categories: ['Jan', 'Feb', 'Mar'],
+            series: [
+              SeriesSpec('Net sales', [100, 200, 300]),
+              SeriesSpec('Gross profit', [20, 40, 60]),
+            ],
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.fullscreen), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.fullscreen));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.fullscreen_exit), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.fullscreen_exit));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.fullscreen), findsOneWidget);
+  });
+
+  testWidgets('Table mode renders cleanly in card and fullscreen', (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: const Scaffold(
+        body: SingleChildScrollView(
+          child: BiChartCard(
+            title: 'Growth against the prior month',
+            categories: ['Jan', 'Feb', 'Mar'],
+            series: [
+              SeriesSpec('Net sales', [10, 20, 30]),
+              SeriesSpec('Gross profit', [5, 10, 15]),
+            ],
+            defaultTable: true,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('CATEGORY'), findsOneWidget);
+    expect(find.text('NET SALES'), findsOneWidget);
+    expect(find.text('GROSS PROFIT'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.fullscreen));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('CATEGORY'), findsWidgets);
+
+    await tester.tap(find.byIcon(Icons.fullscreen_exit));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.fullscreen), findsOneWidget);
   });
 }

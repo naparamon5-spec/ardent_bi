@@ -32,10 +32,10 @@ void showInsightsSheet(BuildContext context, List<dynamic> items) {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Insights',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.textPrimary)),
-                      const SizedBox(height: 2),
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: t.textPrimary)),
+                      const SizedBox(height: 4),
                       Text('What stands out in the current selection',
-                          style: TextStyle(fontSize: 11.5, color: t.textMuted)),
+                          style: TextStyle(fontSize: 13, color: t.textMuted)),
                     ],
                   ),
                 ),

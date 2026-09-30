@@ -18,10 +18,16 @@ class FilterState extends ChangeNotifier {
   final Map<String, String> _dateFrom = {};
   final Map<String, String> _dateTo = {};
   bool _excludeReturns = false;
+  bool _excludeCreditMemos = false;
+  bool _toOrderOnly = false;
+  int? _stockAgeDays;
+  String? _searchQuery;
+  List<String>? _months;
+  String? _savedViewName;
 
   FilterState() {
     // Dated modules start on the year to date.
-    for (final m in const ['sales', 'accrued']) {
+    for (final m in const ['sales', 'accrued', 'periods']) {
       _dateFrom[m] = defaultFrom();
       _dateTo[m] = defaultTo();
     }
@@ -61,11 +67,58 @@ class FilterState extends ChangeNotifier {
     }
   }
 
+  bool excludeCreditMemosOf(String module) => _excludeCreditMemos;
+  void setExcludeCreditMemosOf(String module, bool v) {
+    _excludeCreditMemos = v;
+    notifyListeners();
+  }
+
+  bool toOrderOnlyOf(String module) => module == 'reorder' && _toOrderOnly;
+  void setToOrderOnlyOf(String module, bool v) {
+    if (module == 'reorder') {
+      _toOrderOnly = v;
+      notifyListeners();
+    }
+  }
+
+  int? stockAgeDaysOf(String module) => module == 'inventory' ? _stockAgeDays : null;
+  void setStockAgeDaysOf(String module, int? days) {
+    if (module == 'inventory') {
+      _stockAgeDays = days;
+      notifyListeners();
+    }
+  }
+
+  String? searchQueryOf(String module) => _searchQuery;
+  void setSearchQueryOf(String module, String? query) {
+    _searchQuery = query?.isEmpty == true ? null : query;
+    notifyListeners();
+  }
+
+  List<String>? monthsOf(String module) => _months;
+  void setMonthsOf(String module, List<String>? months) {
+    _months = months;
+    notifyListeners();
+  }
+
+  String? savedViewNameOf(String module) => _savedViewName;
+  void setSavedViewNameOf(String module, String? name) {
+    _savedViewName = name;
+    notifyListeners();
+  }
+
   /// Count of active narrowings for the module's badge (dimensions + flags;
   /// the always-present date range is not counted).
   int activeCount(String module) {
     final dims = _dims[module]?.values.fold<int>(0, (s, l) => s + l.length) ?? 0;
-    return dims + (excludeReturnsOf(module) ? 1 : 0);
+    var count = dims;
+    if (excludeReturnsOf(module)) count++;
+    if (excludeCreditMemosOf(module)) count++;
+    if (toOrderOnlyOf(module)) count++;
+    if (_stockAgeDays != null) count++;
+    if (_searchQuery != null) count++;
+    if (_months != null && _months!.isNotEmpty) count++;
+    return count;
   }
 
   Map<String, dynamic> payload(String module) {
@@ -78,6 +131,12 @@ class FilterState extends ChangeNotifier {
       if (v.isNotEmpty) out[k] = (List.of(v)..sort());
     });
     if (excludeReturnsOf(module)) out['excludeReturns'] = true;
+    if (excludeCreditMemosOf(module)) out['excludeCreditMemos'] = true;
+    if (toOrderOnlyOf(module)) out['toOrderOnly'] = true;
+    if (_stockAgeDays != null) out['stockAgeDays'] = _stockAgeDays;
+    if (_searchQuery != null) out['search'] = _searchQuery;
+    if (_months != null && _months!.isNotEmpty) out['months'] = _months;
+    if (_savedViewName != null) out['savedView'] = _savedViewName;
     return out;
   }
 
@@ -88,6 +147,12 @@ class FilterState extends ChangeNotifier {
     }
     _dims[module]?.updateAll((_, _) => []);
     if (module == 'sales') _excludeReturns = false;
+    _excludeCreditMemos = false;
+    _toOrderOnly = false;
+    _stockAgeDays = null;
+    _searchQuery = null;
+    _months = null;
+    _savedViewName = null;
     notifyListeners();
   }
 

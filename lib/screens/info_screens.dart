@@ -109,10 +109,25 @@ class SupportScreen extends StatelessWidget {
             FutureBuilder<PackageInfo>(
               future: PackageInfo.fromPlatform(),
               builder: (context, snap) {
-                final v = snap.hasData
-                    ? 'ArdentBI Mobile v${snap.data!.version} (${snap.data!.buildNumber})'
-                    : 'ArdentBI Mobile';
-                return _infoCard(t, Icons.info_outline, 'App version', v);
+                final v = snap.hasData ? snap.data!.version : '';
+                return _infoCard(
+                  t,
+                  Icons.info_outline,
+                  'App version',
+                  '',
+                  customSubtitle: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text('ArdentBI', style: TextStyle(fontSize: 12.5, color: t.textSecondary)),
+                      const SizedBox(width: 4),
+                      Text('.', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: t.textSecondary)),
+                      const SizedBox(width: 4),
+                      Text('v$v', style: TextStyle(fontSize: 12.5, color: t.textSecondary)),
+                    ],
+                  ),
+                );
               },
             ),
           ],
@@ -137,12 +152,12 @@ class SupportScreen extends StatelessWidget {
         ),
       );
 
-  Widget _infoCard(BiTokens t, IconData icon, String title, String value) => Card(
+  Widget _infoCard(BiTokens t, IconData icon, String title, String value, {Widget? customSubtitle}) => Card(
         margin: EdgeInsets.zero,
         child: ListTile(
           leading: _leading(t, icon),
           title: Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: t.textPrimary)),
-          subtitle: Text(value, style: TextStyle(fontSize: 12.5, color: t.textSecondary)),
+          subtitle: customSubtitle ?? Text(value, style: TextStyle(fontSize: 12.5, color: t.textSecondary)),
         ),
       );
 

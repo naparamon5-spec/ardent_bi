@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../state/auth_state.dart';
 import '../theme.dart';
@@ -30,7 +31,6 @@ class MoreScreen extends StatelessWidget {
         automaticallyImplyLeading: false,
       ),
       body: SingleChildScrollView(
-        physics: const NeverScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -84,6 +84,48 @@ class MoreScreen extends StatelessWidget {
               'Privacy Policy',
               'How your data is handled',
               () => open(const PrivacyPolicyScreen()),
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: FutureBuilder<PackageInfo>(
+                future: PackageInfo.fromPlatform(),
+                builder: (context, snap) {
+                  final v = snap.hasData ? snap.data!.version : '';
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        'ArdentBI',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: t.textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: t.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'v$v',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: t.textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ],
         ),

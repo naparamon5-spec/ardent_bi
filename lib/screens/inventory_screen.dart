@@ -53,6 +53,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   String _dimension = 'brand';
   String _measure = 'value';
   int _slowMovingDays = 180;
+  int? _stockAgeDays;
   int _page = 1;
   String _sortBy = 'value';
   String _sortDir = 'desc';
@@ -104,7 +105,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
   static String _labelFor(List<Map<String, dynamic>> opts, String key) =>
       (opts.firstWhere((d) => d['key'] == key, orElse: () => {'label': key})['label'] ?? key).toString();
 
-  Map<String, dynamic> get _body => {'filters': _filters.inventoryPayload};
+  Map<String, dynamic> get _body => {
+    'filters': _filters.inventoryPayload,
+    if (_stockAgeDays != null) 'stockAgeDays': _stockAgeDays,
+    if (_filters.excludeCreditMemosOf('inventory')) 'excludeZeroCost': true,
+  };
 
   Future<void> _loadMeta() async {
     try {
