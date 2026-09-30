@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../api.dart';
@@ -812,8 +813,8 @@ class _OptionsPicker extends StatefulWidget {
 }
 
 class _OptionsPickerState extends State<_OptionsPicker> {
-  final Set<String> _chosen = {};
-  List<String> _options = [];
+  final Set<Map<String, dynamic>> _chosen = {};
+  List<Map<String, dynamic>> _options = [];
   bool _loading = true;
   String? _error;
   String _search = '';
@@ -821,8 +822,22 @@ class _OptionsPickerState extends State<_OptionsPicker> {
   @override
   void initState() {
     super.initState();
-    _chosen.addAll(widget.initial);
+    // Convert initial string values to maps for consistency
+    for (final v in widget.initial) {
+      _chosen.add({'value': v, 'label': v});
+    }
     _load();
+  }
+
+  String _formatAmount(num amount) {
+    if (amount.abs() >= 1e9) {
+      return '₱${(amount / 1e9).toStringAsFixed(1)}B';
+    } else if (amount.abs() >= 1e6) {
+      return '₱${(amount / 1e6).toStringAsFixed(1)}M';
+    } else if (amount.abs() >= 1e3) {
+      return '₱${(amount / 1e3).toStringAsFixed(1)}K';
+    }
+    return '₱${amount.toStringAsFixed(0)}';
   }
 
   Future<void> _load() async {
@@ -834,13 +849,26 @@ class _OptionsPickerState extends State<_OptionsPicker> {
       final auth = context.read<AuthState>();
       // Cascade: send the other active filters (omit this dimension).
       final f = Map<String, dynamic>.from(widget.cascade)..remove(widget.dimension);
-      final res = await auth.client.post('${widget.optionsBase}${widget.dimension}', {
-        'filters': f,
-        if (_search.isNotEmpty) 'search': _search,
-      });
+      
+      // Backend expects GET with query parameter 'f' containing filters as JSON
+      final filtersJson = Uri.encodeComponent(jsonEncode(f));
+      final searchParam = _search.isNotEmpty ? '&search=${Uri.encodeComponent(_search)}' : '';
+      final path = '${widget.optionsBase}${widget.dimension}?f=$filtersJson$searchParam';
+      
+      final res = await auth.client.get(path);
       final values = (res['values'] as List?) ?? const [];
       setState(() {
-        _options = values.map((e) => e.toString()).toList();
+        _options = values.map((e) {
+          if (e is Map) {
+            // Backend returned an object with value/label/amount
+            return Map<String, dynamic>.from(e);
+          } else if (e is String) {
+            // Backend returned a simple string - wrap it
+            return {'value': e, 'label': e};
+          }
+          // Fallback for any other type
+          return {'value': e.toString(), 'label': e.toString()};
+        }).toList();
         _loading = false;
       });
     } on ApiException catch (e) {
@@ -881,23 +909,46 @@ class _OptionsPickerState extends State<_OptionsPicker> {
               ? const Center(child: CircularProgressIndicator())
               : _error != null
                   ? Center(child: Text(_error!, style: TextStyle(color: AppColors.critical)))
-                  : ListView(
-                      children: [
-                        for (final opt in _options)
-                          CheckboxListTile(
-                            dense: true,
-                            value: _chosen.contains(opt),
-                            title: Text(opt, style: TextStyle(fontSize: 13, color: t.textPrimary)),
-                            onChanged: (_) => setState(() {
-                              _chosen.contains(opt) ? _chosen.remove(opt) : _chosen.add(opt);
-                            }),
+                  : ListView.builder(
+                      itemCount: _options.length,
+                      itemBuilder: (_, i) {
+                        final opt = _options[i];
+                        final label = opt['label']?.toString() ?? opt['value']?.toString() ?? opt.toString();
+                        final amount = opt['amount'];
+                        final amountStr = amount is num ? _formatAmount(amount) : '';
+                        
+                        return InkWell(
+                          onTap: () => setState(() {
+                            _chosen.contains(opt) ? _chosen.remove(opt) : _chosen.add(opt);
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: Checkbox(
+                                    value: _chosen.contains(opt),
+                                    onChanged: (_) => setState(() {
+                                      _chosen.contains(opt) ? _chosen.remove(opt) : _chosen.add(opt);
+                                    }),
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(label,
+                                      style: TextStyle(fontSize: 13, color: t.textPrimary)),
+                                ),
+                                if (amountStr.isNotEmpty)
+                                  Text(amountStr,
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textSecondary)),
+                              ],
+                            ),
                           ),
-                        if (_options.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Center(child: Text('No options', style: TextStyle(color: t.textMuted))),
-                          ),
-                      ],
+                        );
+                      },
                     ),
         ),
         SafeArea(
@@ -907,7 +958,10 @@ class _OptionsPickerState extends State<_OptionsPicker> {
             child: SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: () => Navigator.pop(context, _chosen.toList()),
+                onPressed: () {
+                  final values = _chosen.map((m) => m['value']?.toString() ?? m['label']?.toString() ?? '').toList();
+                  Navigator.pop(context, values);
+                },
                 child: Text('Apply (${_chosen.length})'),
               ),
             ),
