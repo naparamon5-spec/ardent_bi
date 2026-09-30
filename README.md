@@ -1,5 +1,20 @@
 # Ardent BI — Mobile
 
+Ardent BI is an internal enterprise business intelligence app for authorized Ardent Networks employees to review sales, inventory, and financial analytics. It is intended for **Unlisted App Distribution** — it is designed for a specific organization (Ardent Networks Inc.) and its authorized employees, not for the general public. A request for unlisted app distribution has been submitted to Apple and we are awaiting the outcome.
+
+Login requires a valid Ardent company account; demo credentials are provided below. All data is served over HTTPS from Ardent's Business Intelligence API.
+
+User accounts are provisioned and managed by Ardent Networks IT for authorized employees. Accounts cannot be created or deleted within the app. For account removal, users contact their Ardent IT administrator.
+
+## Demo Account
+
+For testing and screenshots:
+
+- **Username:** JMOISES-F
+- **Password:** moises01
+
+---
+
 Flutter client for the Ardent BI platform. It talks to the same Express API as
 the `ardentBI` web front end (`/api/*`) and mirrors its look and core analytics
 so the two clients read as one product.
