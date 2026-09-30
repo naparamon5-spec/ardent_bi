@@ -66,7 +66,7 @@ class MoreScreen extends StatelessWidget {
               t,
               Icons.person_outline,
               'Account & settings',
-              'Profile, server, sign out',
+              'Profile, sign out',
               () => open(const AccountScreen()),
             ),
             const SizedBox(height: 16),

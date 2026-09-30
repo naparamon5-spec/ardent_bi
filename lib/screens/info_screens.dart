@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme.dart';
 
 /// Static informational pages linked from the More tab: the privacy policy and
 /// a support/contact page. Content is plain text so it needs no backend.
-const _supportEmail = 'it-support@ardentnetworks.com.ph';
-const _appVersion = '1.0.0';
+const _supportEmail = 'mis@ardentnetworks.com.ph';
 
 class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
@@ -101,12 +101,20 @@ class SupportScreen extends StatelessWidget {
               style: TextStyle(fontSize: 13.5, height: 1.5, color: t.textSecondary),
             ),
             const SizedBox(height: 20),
-            _contactCard(context, t, Icons.email_outlined, 'Email IT support', _supportEmail),
+            _contactCard(context, t, Icons.email_outlined, 'Email MIS support', _supportEmail),
             const SizedBox(height: 10),
             _infoCard(t, Icons.schedule_outlined, 'Support hours',
-                'Monday to Friday, 8:00 AM – 6:00 PM (PHT)'),
+                'Monday to Friday, 8:00 AM – 5:00 PM (PHT)'),
             const SizedBox(height: 10),
-            _infoCard(t, Icons.info_outline, 'App version', 'ArdentBI Mobile v$_appVersion'),
+            FutureBuilder<PackageInfo>(
+              future: PackageInfo.fromPlatform(),
+              builder: (context, snap) {
+                final v = snap.hasData
+                    ? 'ArdentBI Mobile v${snap.data!.version} (${snap.data!.buildNumber})'
+                    : 'ArdentBI Mobile';
+                return _infoCard(t, Icons.info_outline, 'App version', v);
+              },
+            ),
           ],
         ),
       ),
