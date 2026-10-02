@@ -94,6 +94,7 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> _boot() async {
+    final splashStart = DateTime.now();
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_kBase);
     // Ignore any stale local/dev URL saved on device; fall back to the
@@ -122,6 +123,11 @@ class AuthState extends ChangeNotifier {
 
     await _saveLastActive();
     if (isAuthenticated) _startIdleTimer();
+    const minSplash = Duration(milliseconds: 1400);
+    final elapsed = DateTime.now().difference(splashStart);
+    if (elapsed < minSplash) {
+      await Future.delayed(minSplash - elapsed);
+    }
     booting = false;
     notifyListeners();
   }
