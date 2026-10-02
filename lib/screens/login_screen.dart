@@ -21,23 +21,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _remember = false;
   String? _error;
 
-  // Triple-tap on the logo unlocks demo mode (App Store screenshot capture).
-  int _logoTaps = 0;
-  DateTime _lastLogoTap = DateTime.fromMillisecondsSinceEpoch(0);
-
-  void _onLogoTap() {
-    final now = DateTime.now();
-    if (now.difference(_lastLogoTap) > const Duration(milliseconds: 800)) {
-      _logoTaps = 0;
-    }
-    _lastLogoTap = now;
-    _logoTaps++;
-    if (_logoTaps >= 3) {
-      _logoTaps = 0;
-      context.read<AuthState>().enterDemo();
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -103,27 +86,22 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: Column(
                   children: [
-                    // Triple-tap the logo to enter demo mode (used for App
-                    // Store screenshots; invisible to normal users).
-                    GestureDetector(
-                      onTap: _onLogoTap,
-                      child: Container(
-                        width: 92,
-                        height: 92,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.25),
-                              blurRadius: 18,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        alignment: Alignment.center,
-                        child: Image.asset('assets/logo_mark.png', width: 56),
+                    Container(
+                      width: 92,
+                      height: 92,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
                       ),
+                      alignment: Alignment.center,
+                      child: Image.asset('assets/logo_mark.png', width: 56),
                     ),
                     const SizedBox(height: 20),
                     RichText(

@@ -44,6 +44,7 @@ dependencies:
   share_plus: ^13.3.0
   flutter_dotenv: ^5.1.0   # loads API_BASE_URL and other config from .env
   package_info_plus: ^10.2.1 # reads the app version from the bundle at runtime
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

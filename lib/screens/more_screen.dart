@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../state/auth_state.dart';
 import '../theme.dart';
 import 'account_screen.dart';
 // Temporarily hidden — kept for quick restore.
 // import 'accrued_screen.dart';
-import 'info_screens.dart';
 import 'periods_screen.dart';
 import 'reorder_point_screen.dart';
+
+const _supportUrl = 'https://ardentbi.ardentnetworks.com.ph/support';
+const _privacyUrl = 'https://ardentbi.ardentnetworks.com.ph/privacy-policy';
 
 /// The "More" tab: analytics modules that don't warrant a bottom-bar slot, plus
 /// the account. Entries are role-gated to match the web sidebar — Re-Order Point
@@ -23,6 +26,16 @@ class MoreScreen extends StatelessWidget {
 
     void open(Widget screen) {
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    }
+
+    Future<void> openUrl(String url) async {
+      final uri = Uri.parse(url);
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open $url')),
+        );
+      }
     }
 
     return Scaffold(
@@ -76,14 +89,14 @@ class MoreScreen extends StatelessWidget {
               Icons.help_outline,
               'Support',
               'Get help and contact IT',
-              () => open(const SupportScreen()),
+              () => openUrl(_supportUrl),
             ),
             _tile(
               t,
               Icons.privacy_tip_outlined,
               'Privacy Policy',
               'How your data is handled',
-              () => open(const PrivacyPolicyScreen()),
+              () => openUrl(_privacyUrl),
             ),
             const SizedBox(height: 24),
             Center(

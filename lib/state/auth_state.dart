@@ -122,8 +122,6 @@ class AuthState extends ChangeNotifier {
 
     await _saveLastActive();
     if (isAuthenticated) _startIdleTimer();
-    // Hold the splash briefly on first launch so the brand mark is visible.
-    await Future.delayed(const Duration(milliseconds: 1500));
     booting = false;
     notifyListeners();
   }
