@@ -10,6 +10,7 @@ import 'screens/login_screen.dart';
 import 'screens/splash_screen.dart';
 import 'widgets/app_lifecycle_guard.dart';
 import 'widgets/loading_overlay.dart';
+import 'version_gate.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -65,16 +66,58 @@ class ArdentBiApp extends StatelessWidget {
 }
 
 /// Chooses login vs. app based on auth state — the mobile equivalent of the
-/// web's global auth middleware.
-class _Root extends StatelessWidget {
+/// web's global auth middleware. Also runs the launch-time app-version gate:
+/// a forced update replaces everything with a blocking wall; a soft update is
+/// shown as a dismissible dialog after routing.
+class _Root extends StatefulWidget {
   const _Root();
 
   @override
+  State<_Root> createState() => _RootState();
+}
+
+class _RootState extends State<_Root> {
+  UpdateDecision _decision = UpdateDecision.none;
+  bool _versionChecked = false;
+  bool _softShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _runVersionCheck();
+  }
+
+  Future<void> _runVersionCheck() async {
+    final decision = await VersionGate.check();
+    if (!mounted) return;
+    setState(() {
+      _decision = decision;
+      _versionChecked = true;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Forced update takes over the whole app before anything else.
+    if (_decision.action == UpdateAction.forced) {
+      return ForceUpdateScreen(storeUrl: _decision.storeUrl);
+    }
+
     final auth = context.watch<AuthState>();
-    if (auth.booting) {
+    if (auth.booting || !_versionChecked) {
       return const SplashScreen();
     }
+
+    // Soft update: offer it once, after the destination is on screen.
+    if (_decision.action == UpdateAction.soft && !_softShown) {
+      _softShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          showSoftUpdateDialog(context, storeUrl: _decision.storeUrl);
+        }
+      });
+    }
+
     return auth.isAuthenticated ? const HomeShell() : const LoginScreen();
   }
 }
