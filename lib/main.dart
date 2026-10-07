@@ -81,34 +81,93 @@ class _Root extends StatefulWidget {
   State<_Root> createState() => _RootState();
 }
 
-class _RootState extends State<_Root> {
+class _RootState extends State<_Root> with WidgetsBindingObserver {
   AppUpdateAction _action = AppUpdateAction.none;
   AppVersionInfo? _remote;
   bool _versionChecked = false;
   bool _promptShown = false;
+  // Resume re-check: a version released while the app sat in memory must
+  // still prompt without the user killing the app from multitask. Throttled
+  // so quick app switches (e.g. copying an OTP) don't re-hit the endpoint.
+  static const _recheckInterval = Duration(minutes: 1);
+  DateTime? _lastCheckAt;
+  bool _checkInProgress = false;
+  bool _promptVisible = false;
+  // Soft prompt shows at most once per launch; the forced wall always returns.
+  bool _softShownThisLaunch = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _runVersionCheck();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (!_versionChecked || _checkInProgress || _promptVisible) return;
+    final last = _lastCheckAt;
+    if (last != null && DateTime.now().difference(last) < _recheckInterval) {
+      return;
+    }
+    _recheckOnResume();
+  }
+
+  Future<void> _recheckOnResume() async {
+    await _runVersionCheck();
+    if (!mounted || _remote == null || _promptVisible) return;
+    if (_action == AppUpdateAction.none) return;
+    if (_action == AppUpdateAction.soft && _softShownThisLaunch) return;
+    _showPrompt();
+  }
+
   Future<void> _runVersionCheck() async {
+    if (_checkInProgress) return;
+    _checkInProgress = true;
     final svc = AppVersionService();
     try {
       final current = await svc.getInstalledVersion();
       final remote = await svc.fetchLatestVersion();
       if (!mounted) return;
+      _lastCheckAt = DateTime.now();
       final action = (current != null && remote != null)
           ? AppVersionService.decideUpdate(current, remote)
           : AppUpdateAction.none;
       setState(() {
-        _action = action;
-        _remote = remote;
+        // A failed fetch on resume keeps the last known result (fails open
+        // only when nothing is known yet).
+        if (remote != null || !_versionChecked) {
+          _action = action;
+          _remote = remote;
+        }
         _versionChecked = true;
       });
     } finally {
+      _checkInProgress = false;
       svc.dispose();
+    }
+  }
+
+  Future<void> _showPrompt() async {
+    final remote = _remote;
+    if (remote == null || _promptVisible) return;
+    _promptVisible = true;
+    if (_action == AppUpdateAction.soft) _softShownThisLaunch = true;
+    try {
+      if (_action == AppUpdateAction.forced) {
+        await showForceUpdateDialog(context: context, remote: remote);
+      } else {
+        await showSoftUpdateDialog(context: context, remote: remote);
+      }
+    } finally {
+      _promptVisible = false;
     }
   }
 
@@ -119,18 +178,14 @@ class _RootState extends State<_Root> {
       return const SplashScreen();
     }
 
-    // Show the gate once, after the destination is on screen. A forced update
-    // pushes an opaque full-screen wall (blocks the app); a soft update is a
-    // dismissible card. Mirrors the ARM app.
+    // Show the gate once at launch, after the destination is on screen. A
+    // forced update pushes an opaque full-screen wall (blocks the app); a soft
+    // update is a dismissible card. Mirrors the ARM app. Later prompts come
+    // from [_recheckOnResume].
     if (_remote != null && !_promptShown && _action != AppUpdateAction.none) {
       _promptShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (_action == AppUpdateAction.forced) {
-          showForceUpdateDialog(context: context, remote: _remote!);
-        } else {
-          showSoftUpdateDialog(context: context, remote: _remote!);
-        }
+        if (mounted) _showPrompt();
       });
     }
 
