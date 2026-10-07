@@ -11,6 +11,7 @@ import 'screens/splash_screen.dart';
 import 'widgets/app_lifecycle_guard.dart';
 import 'widgets/loading_overlay.dart';
 import 'version_gate.dart';
+import 'post_update_reset.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -24,6 +25,10 @@ Future<void> main() async {
   }
   // Load locale data so DateFormat('en_PH') works (Fmt.date on the Sales list).
   await initializeDateFormatting('en_PH');
+  // Post-update sign-out: if the installed app version changed since the last
+  // launch, drop the stored JWT so the user signs in again on the fresh
+  // build. Fails open — never blocks launch.
+  await PostUpdateReset.runIfVersionChanged();
   runApp(ArdentBiApp());
 }
 
