@@ -82,9 +82,10 @@ class _Root extends StatefulWidget {
 }
 
 class _RootState extends State<_Root> {
-  UpdateDecision _decision = UpdateDecision.none;
+  AppUpdateAction _action = AppUpdateAction.none;
+  AppVersionInfo? _remote;
   bool _versionChecked = false;
-  bool _softShown = false;
+  bool _promptShown = false;
 
   @override
   void initState() {
@@ -93,32 +94,42 @@ class _RootState extends State<_Root> {
   }
 
   Future<void> _runVersionCheck() async {
-    final decision = await VersionGate.check();
-    if (!mounted) return;
-    setState(() {
-      _decision = decision;
-      _versionChecked = true;
-    });
+    final svc = AppVersionService();
+    try {
+      final current = await svc.getInstalledVersion();
+      final remote = await svc.fetchLatestVersion();
+      if (!mounted) return;
+      final action = (current != null && remote != null)
+          ? AppVersionService.decideUpdate(current, remote)
+          : AppUpdateAction.none;
+      setState(() {
+        _action = action;
+        _remote = remote;
+        _versionChecked = true;
+      });
+    } finally {
+      svc.dispose();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Forced update takes over the whole app before anything else.
-    if (_decision.action == UpdateAction.forced) {
-      return ForceUpdateScreen(storeUrl: _decision.storeUrl);
-    }
-
     final auth = context.watch<AuthState>();
     if (auth.booting || !_versionChecked) {
       return const SplashScreen();
     }
 
-    // Soft update: offer it once, after the destination is on screen.
-    if (_decision.action == UpdateAction.soft && !_softShown) {
-      _softShown = true;
+    // Show the gate once, after the destination is on screen. A forced update
+    // pushes an opaque full-screen wall (blocks the app); a soft update is a
+    // dismissible card. Mirrors the ARM app.
+    if (_remote != null && !_promptShown && _action != AppUpdateAction.none) {
+      _promptShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          showSoftUpdateDialog(context, storeUrl: _decision.storeUrl);
+        if (!mounted) return;
+        if (_action == AppUpdateAction.forced) {
+          showForceUpdateDialog(context: context, remote: _remote!);
+        } else {
+          showSoftUpdateDialog(context: context, remote: _remote!);
         }
       });
     }
