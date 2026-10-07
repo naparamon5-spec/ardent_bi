@@ -345,44 +345,8 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
     );
   }
 
-  Widget _eyebrow(BiTokens t, String s) => Text(s.toUpperCase(),
-      style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted));
-
-  Widget _dropdown(BiTokens t, String label, List<String> items, String value, ValueChanged<String> onChanged) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _eyebrow(t, label),
-      const SizedBox(height: 6),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: t.gridline),
-        ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<String>(
-            isExpanded: true,
-            value: items.contains(value) ? value : (items.isEmpty ? null : items.first),
-            style: TextStyle(fontSize: 13, color: t.textPrimary),
-            iconEnabledColor: t.textSecondary,
-            items: [
-              for (final i in items)
-                DropdownMenuItem(
-                  value: i,
-                  child: Text(i,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13, color: t.textPrimary)),
-                ),
-            ],
-            onChanged: (v) {
-              if (v != null) onChanged(v);
-            },
-          ),
-        ),
-      ),
-    ]);
-  }
+  Widget _dropdown(BiTokens t, String label, List<String> items, String value, ValueChanged<String> onChanged) =>
+      CompactSelect(label: label, items: items, value: value, onChanged: onChanged);
 
   // ── Re-order point by item ──────────────────────────────────────────
 

@@ -175,3 +175,112 @@ class YearQuarterSelector extends StatelessWidget {
   Widget _eyebrow(BiTokens t, String s) => Text(s.toUpperCase(),
       style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted));
 }
+
+/// Compact labelled select: a slim field that opens a bottom-sheet picker
+/// instead of Material's full-height dropdown overlay.
+class CompactSelect extends StatelessWidget {
+  final String label;
+  final List<String> items;
+  final String value;
+  final ValueChanged<String> onChanged;
+  const CompactSelect({
+    super.key,
+    required this.label,
+    required this.items,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = BiTokens.of(context);
+    final current = items.contains(value) ? value : (items.isEmpty ? '' : items.first);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label.toUpperCase(),
+          style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, fontWeight: FontWeight.w600, color: t.textMuted)),
+      const SizedBox(height: 6),
+      Material(
+        color: t.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: t.gridline),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: items.isEmpty ? null : () => _open(context, t, current),
+          child: SizedBox(
+            height: 40,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(children: [
+                Expanded(
+                  child: Text(current,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: t.textPrimary)),
+                ),
+                Icon(Icons.unfold_more_rounded, size: 18, color: t.textSecondary),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Future<void> _open(BuildContext context, BiTokens t, String current) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: t.elevated,
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          child: Text(label, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: t.textPrimary)),
+        ),
+        Flexible(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+            children: [
+              for (final i in items)
+                _option(ctx, t, i, i == current),
+            ],
+          ),
+        ),
+      ]),
+    );
+    if (picked != null && picked != current) onChanged(picked);
+  }
+
+  Widget _option(BuildContext ctx, BiTokens t, String item, bool selected) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Material(
+        color: selected ? t.brandSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => Navigator.pop(ctx, item),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            child: Row(children: [
+              Expanded(
+                child: Text(item,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                        color: selected ? t.brandInk : t.textPrimary)),
+              ),
+              if (selected) Icon(Icons.check_rounded, size: 18, color: t.brandInk),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}

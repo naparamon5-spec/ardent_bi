@@ -49,7 +49,7 @@ class FilterModule {
     },
     advancedDimensions: {
       'productGroup': 'Product Group',
-      'class': 'Class',
+      'className': 'Class',
       'businessUnit': 'Business Unit',
       'salesGroup': 'Sales Group',
       'category': 'Category',
@@ -79,7 +79,7 @@ class FilterModule {
     dimensions: {
       'brand': 'Brand',
       'productGroup': 'Product Group',
-      'orderingInstruction': 'Ordering Instruction',
+      'instruction': 'Ordering Instruction',
     },
     // Item is a free-text search, not a dimension dropdown.
   );
@@ -112,7 +112,7 @@ class FilterModule {
     },
     advancedDimensions: {
       'productGroup': 'Product Group',
-      'class': 'Class',
+      'className': 'Class',
       'businessUnit': 'Business Unit',
       'salesGroup': 'Sales Group',
       'category': 'Category',
