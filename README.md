@@ -6,12 +6,6 @@ Login requires a valid Ardent company account; demo credentials are provided bel
 
 User accounts are provisioned and managed by Ardent Networks IT for authorized employees. Accounts cannot be created or deleted within the app. For account removal, users contact their Ardent IT administrator.
 
-## Demo Account
-
-For testing and screenshots:
-
-- **Username:** JMOISES-F
-- **Password:** moises01
 
 ---
 
