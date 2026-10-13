@@ -17,6 +17,9 @@ class FilterState extends ChangeNotifier {
   final Map<String, Map<String, List<String>>> _dims = {};
   final Map<String, String> _dateFrom = {};
   final Map<String, String> _dateTo = {};
+  // Modules whose range the user picked. The rest track "Jan 1 → today" live,
+  // so an app left open across midnight still asks for the newest day.
+  final Set<String> _customDates = {};
   bool _excludeReturns = false;
   bool _excludeCreditMemos = false;
   bool _toOrderOnly = false;
@@ -50,12 +53,15 @@ class FilterState extends ChangeNotifier {
   }
 
   bool hasDate(String module) => _dateFrom.containsKey(module);
-  String dateFromOf(String module) => _dateFrom[module] ?? defaultFrom();
-  String dateToOf(String module) => _dateTo[module] ?? defaultTo();
+  String dateFromOf(String module) =>
+      _customDates.contains(module) ? (_dateFrom[module] ?? defaultFrom()) : defaultFrom();
+  String dateToOf(String module) =>
+      _customDates.contains(module) ? (_dateTo[module] ?? defaultTo()) : defaultTo();
 
   void setDateRangeOf(String module, String from, String to) {
     _dateFrom[module] = from;
     _dateTo[module] = to;
+    _customDates.add(module);
     notifyListeners();
   }
 
@@ -144,6 +150,7 @@ class FilterState extends ChangeNotifier {
     if (hasDate(module)) {
       _dateFrom[module] = defaultFrom();
       _dateTo[module] = defaultTo();
+      _customDates.remove(module);
     }
     _dims[module]?.updateAll((_, _) => []);
     if (module == 'sales') _excludeReturns = false;

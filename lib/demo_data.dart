@@ -55,6 +55,7 @@ class DemoData {
       };
     }
     if (path.startsWith('/api/auth/logout')) return {'ok': true};
+    if (path.startsWith('/api/auth/change-password')) return {'ok': true};
 
     if (path == '/api/sales/kpis') {
       final cur = _agg(_val(84e6, 22e6));

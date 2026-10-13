@@ -213,10 +213,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final rows = (_pivot?['rows'] as List?) ?? const [];
     final colTotals = ((_pivot?['columnTotals'] as List?) ?? const []);
     final grand = (_pivot?['grandTotal'] as num?)?.toDouble() ?? 0;
+    // Largest single cell anchors the heat scale, as on the web.
+    var maxCell = 0.0;
+    for (final r in rows) {
+      final vals = r is Map ? (r['values'] as List?) ?? const [] : const [];
+      for (final v in vals) {
+        final d = (v as num?)?.toDouble() ?? 0;
+        if (d > maxCell) maxCell = d;
+      }
+    }
 
     return BiCard(
       title: 'Brand by quarter',
-      subtitle: 'Grand total ${Fmt.compact(grand)}',
+      subtitle: 'Brand × quarter — grand total ${Fmt.money(grand)}',
       child: rows.isEmpty
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
@@ -229,7 +238,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Table(
                 columnWidths: {
                   0: const FixedColumnWidth(150),
-                  for (var c = 1; c <= cols.length + 1; c++) c: const FixedColumnWidth(96),
+                  for (var c = 1; c <= cols.length + 1; c++) c: const FixedColumnWidth(112),
                 },
                 children: [
                   TableRow(children: [
@@ -241,15 +250,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     TableRow(children: [
                       _pivotCell(t, (r['name'] ?? '—').toString()),
                       for (var c = 0; c < cols.length; c++)
-                        _pivotCell(t, _pivotText(_at(r['values'], c)), right: true),
-                      _pivotCell(t, Fmt.compact((r['total'] as num?)?.toDouble() ?? 0),
+                        _pivotCell(t, _pivotText(_at(r['values'], c)), right: true,
+                            heat: _heat((_at(r['values'], c) as num?)?.toDouble() ?? 0, maxCell)),
+                      _pivotCell(t, Fmt.money((r['total'] as num?)?.toDouble() ?? 0),
                           right: true, bold: true),
                     ]),
                   TableRow(children: [
                     _pivotCell(t, 'TOTAL', bold: true),
                     for (var c = 0; c < cols.length; c++)
                       _pivotCell(t, _pivotText(_at(colTotals, c)), right: true, bold: true),
-                    _pivotCell(t, Fmt.compact(grand), right: true, bold: true),
+                    _pivotCell(t, Fmt.money(grand), right: true, bold: true),
                   ]),
                 ],
               ),
@@ -263,14 +273,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _pivotText(dynamic v) {
     final n = (v as num?)?.toDouble() ?? 0;
-    return n == 0 ? '—' : Fmt.compact(n);
+    return n == 0 ? '—' : Fmt.money(n);
   }
 
   Widget _pivotCell(BiTokens t, String text,
-      {bool header = false, bool right = false, bool bold = false}) {
+      {bool header = false, bool right = false, bool bold = false, double heat = 0}) {
+    final shaded = heat > 0;
     return Container(
-      padding: EdgeInsets.fromLTRB(right ? 8 : 0, 9, right ? 0 : 8, 9),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.gridline))),
+      padding: EdgeInsets.fromLTRB(right ? 8 : 0, 9, right ? (shaded ? 8 : 0) : 8, 9),
+      decoration: BoxDecoration(
+        color: shaded ? Color.lerp(const Color(0xFFBCD6F6), const Color(0xFF0B3266), heat) : null,
+        border: Border(bottom: BorderSide(color: t.gridline)),
+      ),
       child: Text(
         text,
         maxLines: 1,
@@ -280,10 +294,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           fontSize: header ? 10.5 : 12.5,
           letterSpacing: header ? 0.5 : 0,
           fontWeight: header || bold ? FontWeight.w700 : FontWeight.w500,
-          color: header ? t.textMuted : (bold ? t.textPrimary : t.textSecondary),
+          color: header
+              ? t.textMuted
+              : shaded
+                  ? (heat > 0.4 ? Colors.white : const Color(0xFF0B3266))
+                  : (bold ? t.textPrimary : t.textSecondary),
         ),
       ),
     );
+  }
+
+  /// Share of the largest cell (0 = unshaded). Small values stay plain so the
+  /// leaders stand out — the web's navy ramp.
+  double _heat(double v, double max) {
+    if (max <= 0) return 0;
+    final r = (v / max).clamp(0.0, 1.0);
+    return r < 0.04 ? 0 : r;
   }
 
   void _showInsights(BuildContext context) => showInsightsSheet(context, _insights);

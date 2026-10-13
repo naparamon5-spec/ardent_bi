@@ -572,7 +572,7 @@ class _BiChartTableView extends StatelessWidget {
   });
 
   String _fmt(double v) =>
-      percent ? '${v.toStringAsFixed(1)}%' : (currency ? Fmt.compact(v) : Fmt.number(v));
+      percent ? '${v.toStringAsFixed(1)}%' : (currency ? Fmt.money(v) : Fmt.number(v));
 
   @override
   Widget build(BuildContext context) {
@@ -1139,7 +1139,7 @@ FlTitlesData _titles(BiTokens t, List<String> categories, bool currency, double 
           interval: maxY / 2,
           getTitlesWidget: (v, meta) {
             if (v == 0) return const SizedBox.shrink();
-            final label = percent ? '${v.toStringAsFixed(0)}%' : Fmt.compact(v);
+            final label = percent ? '${v.toStringAsFixed(0)}%' : (currency ? Fmt.money(v) : Fmt.compact(v));
             return Text(label, style: TextStyle(fontSize: 9, color: t.textMuted));
           },
         ),
@@ -1656,7 +1656,7 @@ class _DonutView extends StatelessWidget {
             ),
             if (hole)
               Column(mainAxisSize: MainAxisSize.min, children: [
-                Text(currency ? Fmt.compact(total) : Fmt.number(total),
+                Text(currency ? Fmt.money(total) : Fmt.number(total),
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: t.textPrimary)),
                 Text('Total', style: TextStyle(fontSize: 10.5, letterSpacing: 0.5, color: t.textMuted)),
               ]),
@@ -1673,7 +1673,7 @@ class _DonutView extends StatelessWidget {
                     decoration: BoxDecoration(
                         color: t.series[i % t.series.length], borderRadius: BorderRadius.circular(2))),
                 const SizedBox(width: 5),
-                Text('${slices[i].name} · ${currency ? Fmt.compact(slices[i].value) : Fmt.number(slices[i].value)}',
+                Text('${slices[i].name} · ${currency ? Fmt.money(slices[i].value) : Fmt.number(slices[i].value)}',
                     style: TextStyle(fontSize: 11, color: t.textSecondary)),
               ]),
           ],
@@ -1795,7 +1795,7 @@ class _TreemapPainter extends CustomPainter {
       _label(canvas, cells[i].name, TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white), box, 0);
       _label(
           canvas,
-          currency ? Fmt.compact(cells[i].value) : Fmt.number(cells[i].value),
+          currency ? Fmt.money(cells[i].value) : Fmt.number(cells[i].value),
           const TextStyle(fontSize: 10.5, color: Color(0xE6FFFFFF)),
           box,
           14);

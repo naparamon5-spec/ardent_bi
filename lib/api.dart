@@ -50,9 +50,14 @@ class ApiClient {
     return _send(() => _http.get(_uri(path), headers: _headers));
   }
 
-  Future<dynamic> post(String path, [Object? body]) {
+  /// [signOutOn401] is false for calls where a 401 means "wrong input"
+  /// (e.g. a bad current password) rather than an expired session.
+  Future<dynamic> post(String path, [Object? body, bool signOutOn401 = true]) {
     if (demo) return _demo(path, body);
-    return _send(() => _http.post(_uri(path), headers: _headers, body: jsonEncode(body ?? {})));
+    return _send(
+      () => _http.post(_uri(path), headers: _headers, body: jsonEncode(body ?? {})),
+      signOutOn401: signOutOn401,
+    );
   }
 
   /// POST that keeps the raw response body (CSV export) instead of parsing JSON.
@@ -72,14 +77,14 @@ class ApiClient {
     return res.body;
   }
 
-  Future<dynamic> _send(Future<http.Response> Function() run) async {
+  Future<dynamic> _send(Future<http.Response> Function() run, {bool signOutOn401 = true}) async {
     late http.Response res;
     try {
       res = await run().timeout(const Duration(seconds: 60));
     } catch (e) {
       throw ApiException('Cannot reach the server at $baseUrl. Check the URL and your connection.');
     }
-    if (res.statusCode == 401) {
+    if (res.statusCode == 401 && signOutOn401) {
       onUnauthorized?.call();
     }
     dynamic data;

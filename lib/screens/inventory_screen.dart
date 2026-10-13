@@ -150,9 +150,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
       final kpis = await api.post('/api/inventory/kpis', _body) as Map<String, dynamic>;
       final rest = await Future.wait([
         _tryPost('/api/inventory/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 15}),
-        _tryPost('/api/inventory/ageing-breakdown', {..._body, 'dimension': _dimension, 'limit': 12}),
-        _tryPost('/api/inventory/top-items', {..._body, 'measure': _measure, 'limit': 20}),
-        _tryPost('/api/inventory/slow-moving', {..._body, 'minDays': _slowMovingDays, 'limit': 25}),
+        _tryPost('/api/inventory/ageing', {..._body, 'dimension': _dimension}),
+        _tryPost('/api/inventory/pareto', {..._body, 'dimension': 'item'}),
+        _tryPost('/api/inventory/slow-movers', {..._body, 'minDays': _slowMovingDays, 'limit': 25}),
         _tryPost('/api/inventory/insights', {..._body, 'dimension': _dimension}),
       ]);
       if (!mounted) return;
@@ -160,7 +160,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         _kpis = kpis;
         _breakdown = rest[0];
         _ageingByDim = rest[1];
-        _topItems = (rest[2]?['rows'] as List?) ?? const [];
+        _topItems = ((rest[2]?['rows'] as List?) ?? const []).take(20).toList();
         _slowMoving = (rest[3]?['rows'] as List?) ?? const [];
         _insights = (rest[4]?['insights'] as List?) ?? const [];
         _loading = false;
@@ -177,7 +177,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Future<void> _loadSlowMoving() async {
-    final res = await _tryPost('/api/inventory/slow-moving', {..._body, 'minDays': _slowMovingDays, 'limit': 25});
+    final res = await _tryPost('/api/inventory/slow-movers', {..._body, 'minDays': _slowMovingDays, 'limit': 25});
     if (!mounted) return;
     setState(() => _slowMoving = (res?['rows'] as List?) ?? const []);
   }
@@ -233,7 +233,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   /// Slow-moving is already in hand and capped at what the card shows, so it is
   /// written locally rather than asking the server for a second export.
   Future<void> _exportSlowMoving() async {
-    const cols = ['item', 'description', 'brand', 'productManager', 'warehouse', 'qty', 'days', 'value'];
+    const cols = ['item', 'itemDescription', 'brand', 'productManager', 'warehouse', 'qty', 'avgDay', 'value'];
     final lines = <String>[cols.join(',')];
     for (final r in _slowMoving.cast<Map>()) {
       lines.add(cols.map((c) {
@@ -378,7 +378,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Widget _ageingByDimension(BiTokens t) {
     final rows = ((_ageingByDim?['rows'] as List?) ?? const []).cast<Map>();
     final buckets = ((_ageingByDim?['buckets'] as List?) ?? _ageing.map((b) => b['label']).toList())
-        .map((b) => (b ?? '').toString())
+        .map((b) => (b is Map ? b['label'] : b ?? '').toString())
         .toList();
     return BiChartCard(
       title: 'Ageing by $_dimLabel',
@@ -422,12 +422,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   static const _slowCols = [
     ('item', 'Item', 104.0, false),
-    ('description', 'Description', 200.0, false),
+    ('itemDescription', 'Description', 200.0, false),
     ('brand', 'Brand', 96.0, false),
     ('productManager', 'Product manager', 130.0, false),
     ('warehouse', 'WH', 56.0, false),
     ('qty', 'Qty', 56.0, true),
-    ('days', 'Days on hand', 92.0, true),
+    ('avgDay', 'Days on hand', 92.0, true),
     ('value', 'Value', 90.0, true),
   ];
 
@@ -477,12 +477,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   for (final r in rows)
                     TableRow(children: [
                       _cell(t, '${r['item'] ?? '—'}', maxLines: 1, bold: true),
-                      _cell(t, '${r['description'] ?? '—'}'),
+                      _cell(t, '${r['itemDescription'] ?? '—'}'),
                       _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
                       _cell(t, '${r['productManager'] ?? '—'}', maxLines: 1),
                       _cell(t, '${r['warehouse'] ?? '—'}', maxLines: 1),
                       _cell(t, Fmt.number(r['qty']), numeric: true, maxLines: 1),
-                      _cell(t, Fmt.number(r['days']), numeric: true, maxLines: 1, color: AppColors.serious),
+                      _cell(t, Fmt.number(r['avgDay']), numeric: true, maxLines: 1, color: AppColors.serious),
                       _cell(t, Fmt.money(r['value']), numeric: true, maxLines: 1, bold: true),
                     ]),
                 ],
@@ -497,7 +497,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   static const _detailCols = [
     ('item', 'Item', 104.0, false),
-    ('description', 'Description', 200.0, false),
+    ('itemDescription', 'Description', 200.0, false),
     ('brand', 'Brand', 96.0, false),
     ('productGroup', 'Product group', 130.0, false),
     ('productManager', 'Product manager', 130.0, false),
@@ -505,7 +505,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     ('warehouse', 'WH', 56.0, false),
     ('qty', 'Qty', 56.0, true),
     ('avgCost', 'Avg cost', 90.0, true),
-    ('days', 'Days', 60.0, true),
+    ('avgDay', 'Days', 60.0, true),
     ('value', 'Value', 90.0, true),
   ];
 
@@ -540,7 +540,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     for (final r in _detail.cast<Map>())
                       TableRow(children: [
                         _cell(t, '${r['item'] ?? '—'}', maxLines: 1, bold: true),
-                        _cell(t, '${r['description'] ?? '—'}'),
+                        _cell(t, '${r['itemDescription'] ?? '—'}'),
                         _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
                         _cell(t, '${r['productGroup'] ?? '—'}'),
                         _cell(t, '${r['productManager'] ?? '—'}', maxLines: 1),
@@ -548,7 +548,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         _cell(t, '${r['warehouse'] ?? '—'}', maxLines: 1),
                         _cell(t, Fmt.number(r['qty']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['avgCost']), numeric: true, maxLines: 1),
-                        _cell(t, Fmt.number(r['days']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.number(r['avgDay']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['value']), numeric: true, maxLines: 1, bold: true),
                       ]),
                   ],

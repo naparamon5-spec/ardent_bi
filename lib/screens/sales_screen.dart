@@ -681,11 +681,11 @@ class _SalesScreenState extends State<SalesScreen> {
 
   static const _detailCols = [
     ('date', 'Date', 86.0, false),
-    ('invoice', 'Invoice', 84.0, false),
+    ('invoice', 'Invoice', 112.0, false),
     ('customer', 'Customer', 150.0, false),
     ('salesman', 'Salesman', 130.0, false),
     ('brand', 'Brand', 84.0, false),
-    ('item', 'Item', 100.0, false),
+    ('item', 'Item', 116.0, false),
     ('qty', 'Qty', 44.0, true),
     ('sales', 'Net sales', 84.0, true),
     ('grossProfit', 'Gross profit', 104.0, true),

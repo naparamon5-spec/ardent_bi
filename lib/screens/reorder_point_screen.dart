@@ -55,7 +55,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
   static const _fallbackDims = [
     {'key': 'brand', 'label': 'Brand'},
     {'key': 'productGroup', 'label': 'Product Group'},
-    {'key': 'verdict', 'label': 'Ordering Verdict'},
+    {'key': 'instruction', 'label': 'Ordering Verdict'},
   ];
   static const _fallbackMeasures = [
     {'key': 'forecast', 'label': 'Forecast Qty', 'format': 'number'},
@@ -140,7 +140,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
       final kpis = await api.post('/api/reorder-point/kpis', _body) as Map<String, dynamic>;
       final rest = await Future.wait([
         _tryPost('/api/reorder-point/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 15}),
-        _tryPost('/api/reorder-point/breakdown', {..._body, 'dimension': 'verdict', 'measure': 'items', 'limit': 8}),
+        _tryPost('/api/reorder-point/breakdown', {..._body, 'dimension': 'instruction', 'measure': 'items', 'limit': 8}),
       ]);
       if (!mounted) return;
       setState(() {
@@ -204,7 +204,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
       // The export endpoint may not be served in every environment; fall back to
       // the page that is already in hand rather than failing the tap.
       const cols = ['sku', 'itemDescription', 'brand', 'productGroup', 'onHand', 'backOrder', 'safetyStock',
-        'leadTimeDemand', 'rop', 'forecast', 'avgNetCost'];
+        'leadTimeDemand', 'rop', 'forecast', 'avgNetCost', 'amount', 'instruction'];
       await _share('ardent-reorder-point-$_stamp.csv', _csv(cols, _detail.cast<Map>()));
     }
   }
@@ -351,7 +351,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
   // ── Re-order point by item ──────────────────────────────────────────
 
   static const _detailCols = [
-    ('sku', 'SKU', 96.0, false),
+    ('sku', 'SKU', 132.0, false),
     ('itemDescription', 'Description', 220.0, false),
     ('brand', 'Brand', 110.0, false),
     ('productGroup', 'Product Group', 150.0, false),
@@ -362,6 +362,8 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
     ('rop', 'ROP', 64.0, true),
     ('forecast', 'Forecast Qty', 96.0, true),
     ('avgNetCost', 'Avg Net Cost', 96.0, true),
+    ('amount', 'Order Amount', 110.0, true),
+    ('instruction', 'Instruction', 104.0, false),
   ];
 
   Widget _detailCard(BiTokens t) {
@@ -396,7 +398,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
                     TableRow(children: [for (final c in _detailCols) _sortHeader(t, c.$1, c.$2, c.$4)]),
                     for (final r in _detail.cast<Map>())
                       TableRow(children: [
-                        _cell(t, '${r['sku'] ?? r['item'] ?? '—'}', maxLines: 1, bold: true),
+                        _cell(t, '${r['sku'] ?? r['item'] ?? '—'}', maxLines: 2, bold: true),
                         _cell(t, '${r['itemDescription'] ?? '—'}'),
                         _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
                         _cell(t, '${r['productGroup'] ?? '—'}', maxLines: 2),
@@ -407,6 +409,14 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
                         _cell(t, Fmt.number(r['rop']), numeric: true, maxLines: 1, bold: true),
                         _cell(t, Fmt.number(r['forecast']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['avgNetCost']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['amount']), numeric: true, maxLines: 1, bold: true),
+                        _cell(
+                          t,
+                          '${r['instruction'] ?? '—'}',
+                          maxLines: 1,
+                          bold: true,
+                          color: '${r['instruction']}'.toLowerCase().contains('prs') ? AppColors.critical : t.textMuted,
+                        ),
                       ]),
                   ],
                 ),

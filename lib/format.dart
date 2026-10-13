@@ -77,7 +77,9 @@ class Fmt {
   /// being initialized (DateFormat with a named locale throws otherwise).
   static String date(dynamic v) {
     if (v == null) return '';
-    final d = DateTime.tryParse(v.toString());
+    // The API serialises DB datetimes as UTC instants; read them in the
+    // device's zone so a Manila-midnight row doesn't show as the day before.
+    final d = DateTime.tryParse(v.toString())?.toLocal();
     if (d == null) return v.toString();
     final dd = d.day.toString().padLeft(2, '0');
     return '$dd ${_months[d.month - 1]} ${d.year}';
