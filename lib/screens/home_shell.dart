@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import '../theme.dart';
+import 'ai_screen.dart';
 import 'dashboard_screen.dart';
 import 'inventory_screen.dart';
 import 'more_screen.dart';
@@ -33,12 +34,7 @@ class _HomeShellState extends State<HomeShell> {
     return false;
   }
 
-  static const _pages = [
-    DashboardScreen(),
-    SalesScreen(),
-    InventoryScreen(),
-    MoreScreen(),
-  ];
+  static const _pages = [DashboardScreen(), SalesScreen(), InventoryScreen(), MoreScreen()];
 
   static const _items = <_NavItem>[
     _NavItem(Icons.dashboard_outlined, Icons.dashboard, 'Overview'),
@@ -97,30 +93,39 @@ class _FloatingNavBar extends StatelessWidget {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-        child: Container(
-          height: 64,
-          decoration: BoxDecoration(
-            color: t.chrome,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: t.chromeBorder),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: t.isDark ? 0.4 : 0.12),
-                blurRadius: 20,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+        // The orb rises above the bar; the Stack is tall enough to contain it
+        // so the raised part still receives taps.
+        child: SizedBox(
+          height: 64 + _orbLift,
+          child: Stack(
+            alignment: Alignment.bottomCenter,
             children: [
-              for (var i = 0; i < items.length; i++)
-                _NavButton(
-                  item: items[i],
-                  selected: i == index,
-                  onTap: () => onTap(i),
-                  tokens: t,
+              Container(
+                height: 64,
+                decoration: BoxDecoration(
+                  color: t.chrome,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: t.chromeBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: t.isDark ? 0.4 : 0.12),
+                      blurRadius: 20,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    for (var i = 0; i < items.length; i++) ...[
+                      // Empty slot under the raised orb.
+                      if (i == items.length ~/ 2) const SizedBox(width: _orbSize + 8),
+                      _NavButton(item: items[i], selected: i == index, onTap: () => onTap(i), tokens: t),
+                    ],
+                  ],
+                ),
+              ),
+              const Positioned(top: 0, child: _AiNavButton()),
             ],
           ),
         ),
@@ -128,6 +133,9 @@ class _FloatingNavBar extends StatelessWidget {
     );
   }
 }
+
+const double _orbSize = 58;
+const double _orbLift = 22;
 
 class _NavButton extends StatelessWidget {
   final _NavItem item;
@@ -161,6 +169,32 @@ class _NavButton extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Center slot: the AI orb. Tapping it reveals the assistant in a circle
+/// growing out of the orb itself.
+class _AiNavButton extends StatelessWidget {
+  const _AiNavButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      // Ring in the bar's color so the orb looks cut out of the bar.
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: BiTokens.of(context).chrome, shape: BoxShape.circle),
+      child: Semantics(
+        button: true,
+        label: 'Ardent AI',
+        child: GestureDetector(
+          onTap: () {
+            final box = context.findRenderObject() as RenderBox;
+            openAiAssistant(context, box.localToGlobal(box.size.center(Offset.zero)));
+          },
+          child: const AiOrb(size: _orbSize),
         ),
       ),
     );

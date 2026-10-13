@@ -32,9 +32,9 @@ class MoreScreen extends StatelessWidget {
       final uri = Uri.parse(url);
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not open $url')));
       }
     }
 
@@ -90,6 +90,7 @@ class MoreScreen extends StatelessWidget {
               'Support',
               'Get help and contact IT',
               () => openUrl(_supportUrl),
+              external: true,
             ),
             _tile(
               t,
@@ -97,6 +98,7 @@ class MoreScreen extends StatelessWidget {
               'Privacy Policy',
               'How your data is handled',
               () => openUrl(_privacyUrl),
+              external: true,
             ),
             const SizedBox(height: 24),
             Center(
@@ -164,8 +166,9 @@ class MoreScreen extends StatelessWidget {
     IconData icon,
     String title,
     String subtitle,
-    VoidCallback onTap,
-  ) => Card(
+    VoidCallback onTap, {
+    bool external = false,
+  }) => Card(
     margin: const EdgeInsets.only(bottom: 8),
     child: ListTile(
       leading: Container(
@@ -190,7 +193,9 @@ class MoreScreen extends StatelessWidget {
         subtitle,
         style: TextStyle(fontSize: 11.5, color: t.textMuted),
       ),
-      trailing: const Icon(Icons.chevron_right),
+      trailing: external
+          ? Icon(Icons.arrow_outward_rounded, size: 18, color: t.textMuted)
+          : const Icon(Icons.chevron_right),
       onTap: onTap,
     ),
   );

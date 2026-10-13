@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -41,7 +42,12 @@ class ArdentBiApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthState()),
+        ChangeNotifierProvider(create: (_) {
+          final a = AuthState();
+          // Debug-only: `flutter run --dart-define=DEMO=true` skips login with canned data.
+          if (kDebugMode && const bool.fromEnvironment('DEMO')) a.enterDemo();
+          return a;
+        }),
         ChangeNotifierProvider(create: (_) => FilterState()),
         ChangeNotifierProvider(create: (_) => LoadingState()),
       ],

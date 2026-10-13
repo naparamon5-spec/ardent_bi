@@ -240,14 +240,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   for (final r in rows)
                     TableRow(children: [
                       _pivotCell(t, (r['name'] ?? '—').toString()),
-                      for (final v in (r['values'] as List? ?? const []))
-                        _pivotCell(t, _pivotText(v), right: true),
+                      for (var c = 0; c < cols.length; c++)
+                        _pivotCell(t, _pivotText(_at(r['values'], c)), right: true),
                       _pivotCell(t, Fmt.compact((r['total'] as num?)?.toDouble() ?? 0),
                           right: true, bold: true),
                     ]),
                   TableRow(children: [
                     _pivotCell(t, 'TOTAL', bold: true),
-                    for (final v in colTotals) _pivotCell(t, _pivotText(v), right: true, bold: true),
+                    for (var c = 0; c < cols.length; c++)
+                      _pivotCell(t, _pivotText(_at(colTotals, c)), right: true, bold: true),
                     _pivotCell(t, Fmt.compact(grand), right: true, bold: true),
                   ]),
                 ],
@@ -255,6 +256,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
     );
   }
+
+  /// Cell value or null when the API sends fewer values than columns, so
+  /// every TableRow keeps the same width.
+  dynamic _at(dynamic list, int i) => list is List && i < list.length ? list[i] : null;
 
   String _pivotText(dynamic v) {
     final n = (v as num?)?.toDouble() ?? 0;
