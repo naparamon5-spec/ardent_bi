@@ -62,6 +62,7 @@ class ApiClient {
 
   /// POST that keeps the raw response body (CSV export) instead of parsing JSON.
   Future<String> postText(String path, [Object? body]) async {
+    final sentToken = token;
     late http.Response res;
     try {
       res = await _http
@@ -70,7 +71,7 @@ class ApiClient {
     } catch (e) {
       throw ApiException('Cannot reach the server at $baseUrl. Check the URL and your connection.');
     }
-    if (res.statusCode == 401) onUnauthorized?.call();
+    if (res.statusCode == 401 && sentToken == token) onUnauthorized?.call();
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw ApiException('Request failed (${res.statusCode})', status: res.statusCode);
     }
@@ -78,13 +79,17 @@ class ApiClient {
   }
 
   Future<dynamic> _send(Future<http.Response> Function() run, {bool signOutOn401 = true}) async {
+    // The token this request went out with. A 401 for a token that has since
+    // been replaced (stale in-flight call after a re-login) must not sign the
+    // new session out.
+    final sentToken = token;
     late http.Response res;
     try {
       res = await run().timeout(const Duration(seconds: 60));
     } catch (e) {
       throw ApiException('Cannot reach the server at $baseUrl. Check the URL and your connection.');
     }
-    if (res.statusCode == 401 && signOutOn401) {
+    if (res.statusCode == 401 && signOutOn401 && sentToken == token) {
       onUnauthorized?.call();
     }
     dynamic data;

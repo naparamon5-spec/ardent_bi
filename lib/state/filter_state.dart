@@ -21,11 +21,8 @@ class FilterState extends ChangeNotifier {
   // so an app left open across midnight still asks for the newest day.
   final Set<String> _customDates = {};
   bool _excludeReturns = false;
-  bool _excludeCreditMemos = false;
   bool _toOrderOnly = false;
   int? _stockAgeDays;
-  String? _searchQuery;
-  List<String>? _months;
   String? _savedViewName;
 
   FilterState() {
@@ -73,9 +70,15 @@ class FilterState extends ChangeNotifier {
     }
   }
 
-  bool excludeCreditMemosOf(String module) => _excludeCreditMemos;
+  // Search, months and the credit-memo toggle are per module: a search typed
+  // on Sales must not quietly narrow Inventory too.
+  final Map<String, bool> _creditMemosBy = {};
+  final Map<String, String> _searchBy = {};
+  final Map<String, List<String>> _monthsBy = {};
+
+  bool excludeCreditMemosOf(String module) => _creditMemosBy[module] ?? false;
   void setExcludeCreditMemosOf(String module, bool v) {
-    _excludeCreditMemos = v;
+    _creditMemosBy[module] = v;
     notifyListeners();
   }
 
@@ -95,17 +98,27 @@ class FilterState extends ChangeNotifier {
     }
   }
 
-  String? searchQueryOf(String module) => _searchQuery;
+  String? searchQueryOf(String module) => _searchBy[module];
   void setSearchQueryOf(String module, String? query) {
-    _searchQuery = query?.isEmpty == true ? null : query;
+    if (query == null || query.trim().isEmpty) {
+      _searchBy.remove(module);
+    } else {
+      _searchBy[module] = query;
+    }
     notifyListeners();
   }
 
-  List<String>? monthsOf(String module) => _months;
+  List<String>? monthsOf(String module) => _monthsBy[module];
   void setMonthsOf(String module, List<String>? months) {
-    _months = months;
+    if (months == null || months.isEmpty) {
+      _monthsBy.remove(module);
+    } else {
+      _monthsBy[module] = months;
+    }
     notifyListeners();
   }
+
+  static const _monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   String? savedViewNameOf(String module) => _savedViewName;
   void setSavedViewNameOf(String module, String? name) {
@@ -121,9 +134,9 @@ class FilterState extends ChangeNotifier {
     if (excludeReturnsOf(module)) count++;
     if (excludeCreditMemosOf(module)) count++;
     if (toOrderOnlyOf(module)) count++;
-    if (_stockAgeDays != null) count++;
-    if (_searchQuery != null) count++;
-    if (_months != null && _months!.isNotEmpty) count++;
+    if (stockAgeDaysOf(module) != null) count++;
+    if (searchQueryOf(module) != null) count++;
+    if (monthsOf(module) != null) count++;
     return count;
   }
 
@@ -136,13 +149,20 @@ class FilterState extends ChangeNotifier {
     _dims[module]?.forEach((k, v) {
       if (v.isNotEmpty) out[k] = (List.of(v)..sort());
     });
-    if (excludeReturnsOf(module)) out['excludeReturns'] = true;
-    if (excludeCreditMemosOf(module)) out['excludeCreditMemos'] = true;
-    if (toOrderOnlyOf(module)) out['toOrderOnly'] = true;
-    if (_stockAgeDays != null) out['stockAgeDays'] = _stockAgeDays;
-    if (_searchQuery != null) out['search'] = _searchQuery;
-    if (_months != null && _months!.isNotEmpty) out['months'] = _months;
-    if (_savedViewName != null) out['savedView'] = _savedViewName;
+    // Keys below are the server's names (services/filters.js); anything else is
+    // silently ignored there. The web's "Exclude credit memos and adjustments"
+    // checkbox is `excludeReturns` too.
+    if (excludeReturnsOf(module) || excludeCreditMemosOf(module)) out['excludeReturns'] = true;
+    if (toOrderOnlyOf(module)) out['onlyReorder'] = true;
+    final age = stockAgeDaysOf(module);
+    if (age != null) out['minAge'] = age;
+    final search = searchQueryOf(module);
+    if (search != null) out['search'] = search.trim();
+    final months = monthsOf(module);
+    if (months != null) {
+      // The server filters on month numbers 1–12 and drops anything else.
+      out['months'] = (months.map((m) => _monthAbbr.indexOf(m) + 1).where((n) => n > 0).toList()..sort());
+    }
     return out;
   }
 
@@ -154,11 +174,11 @@ class FilterState extends ChangeNotifier {
     }
     _dims[module]?.updateAll((_, _) => []);
     if (module == 'sales') _excludeReturns = false;
-    _excludeCreditMemos = false;
-    _toOrderOnly = false;
-    _stockAgeDays = null;
-    _searchQuery = null;
-    _months = null;
+    if (module == 'reorder') _toOrderOnly = false;
+    if (module == 'inventory') _stockAgeDays = null;
+    _creditMemosBy.remove(module);
+    _searchBy.remove(module);
+    _monthsBy.remove(module);
     _savedViewName = null;
     notifyListeners();
   }

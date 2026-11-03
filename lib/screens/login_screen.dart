@@ -53,9 +53,13 @@ class _LoginScreenState extends State<LoginScreen> {
       await auth.setRememberedUsername(_remember ? _user.text.trim() : null);
       // Navigation is handled by the root listening to auth state.
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(
         () => _error = e.hint != null ? '${e.message}\n${e.hint}' : e.message,
       );
+    } catch (_) {
+      // A malformed sign-in response must not fail silently.
+      if (mounted) setState(() => _error = 'Sign-in failed. Please try again.');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

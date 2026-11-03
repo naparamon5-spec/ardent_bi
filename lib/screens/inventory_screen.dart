@@ -132,13 +132,18 @@ class _InventoryScreenState extends State<InventoryScreen> {
     try {
       final res = await context.read<AuthState>().client.post(path, body);
       return res is Map ? Map<String, dynamic>.from(res) : null;
-    } on ApiException {
+    } on ApiException catch (e) {
+      if (mounted) reportSectionFailure(context, e.message, status: e.status);
       return null;
     }
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _loadGen = 0;
+
   Future<void> _load() async {
     if (!mounted) return;
+    final gen = ++_loadGen;
     setState(() {
       _loading = true;
       _error = null;
@@ -155,7 +160,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         _tryPost('/api/inventory/slow-movers', {..._body, 'minDays': _slowMovingDays, 'limit': 25}),
         _tryPost('/api/inventory/insights', {..._body, 'dimension': _dimension}),
       ]);
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _kpis = kpis;
         _breakdown = rest[0];
@@ -166,7 +171,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         _loading = false;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _error = e.message;
         _loading = false;
@@ -182,8 +187,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
     setState(() => _slowMoving = (res?['rows'] as List?) ?? const []);
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _detailGen = 0;
+
   Future<void> _loadDetail() async {
     if (!mounted) return;
+    final gen = ++_detailGen;
     setState(() => _detailLoading = true);
     final res = await _tryPost('/api/inventory/detail', {
       ..._body,
@@ -192,7 +201,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
       'sortBy': _sortBy,
       'sortDir': _sortDir,
     });
-    if (!mounted) return;
+    if (!mounted || gen != _detailGen) return;
     setState(() {
       _detail = (res?['rows'] as List?) ?? const [];
       _detailTotal = (res?['total'] as num?)?.toInt() ?? 0;
@@ -501,7 +510,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     ('brand', 'Brand', 96.0, false),
     ('productGroup', 'Product group', 130.0, false),
     ('productManager', 'Product manager', 130.0, false),
-    ('unit', 'Unit', 56.0, false),
+    ('businessUnit', 'Unit', 64.0, false),
     ('warehouse', 'WH', 56.0, false),
     ('qty', 'Qty', 56.0, true),
     ('avgCost', 'Avg cost', 90.0, true),
@@ -544,7 +553,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
                         _cell(t, '${r['productGroup'] ?? '—'}'),
                         _cell(t, '${r['productManager'] ?? '—'}', maxLines: 1),
-                        _cell(t, '${r['unit'] ?? '—'}', maxLines: 1),
+                        _cell(t, '${r['businessUnit'] ?? '—'}', maxLines: 1),
                         _cell(t, '${r['warehouse'] ?? '—'}', maxLines: 1),
                         _cell(t, Fmt.number(r['qty']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['avgCost']), numeric: true, maxLines: 1),

@@ -96,7 +96,7 @@ class _FloatingNavBar extends StatelessWidget {
         // The orb rises above the bar; the Stack is tall enough to contain it
         // so the raised part still receives taps.
         child: SizedBox(
-          height: 64 + _orbLift,
+          height: _showAi ? 64 + _orbLift : 64,
           child: Stack(
             alignment: Alignment.bottomCenter,
             children: [
@@ -119,13 +119,13 @@ class _FloatingNavBar extends StatelessWidget {
                   children: [
                     for (var i = 0; i < items.length; i++) ...[
                       // Empty slot under the raised orb.
-                      if (i == items.length ~/ 2) const SizedBox(width: _orbSize + 8),
+                      if (_showAi && i == items.length ~/ 2) const SizedBox(width: _orbSize + 8),
                       _NavButton(item: items[i], selected: i == index, onTap: () => onTap(i), tokens: t),
                     ],
                   ],
                 ),
               ),
-              const Positioned(top: 0, child: _AiNavButton()),
+              if (_showAi) const Positioned(top: 0, child: _AiNavButton()),
             ],
           ),
         ),
@@ -133,6 +133,10 @@ class _FloatingNavBar extends StatelessWidget {
     );
   }
 }
+
+/// Temporarily hides the AI orb (its /api/ai/chat endpoint isn't on the
+/// server yet). Flip to true to bring it back.
+const bool _showAi = false;
 
 const double _orbSize = 58;
 const double _orbLift = 22;

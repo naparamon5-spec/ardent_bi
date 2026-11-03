@@ -8,6 +8,7 @@ import '../state/filter_state.dart';
 import '../state/ui_state.dart';
 import '../theme.dart';
 import '../widgets/bi_chart.dart';
+import '../widgets/common.dart';
 import '../widgets/insights_sheet.dart';
 import '../widgets/kpi_tile.dart';
 
@@ -52,8 +53,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _debounce = Timer(const Duration(milliseconds: 350), _load);
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _loadGen = 0;
+
   Future<void> _load() async {
     if (!mounted) return;
+    final gen = ++_loadGen;
     setState(() {
       _loading = true;
       _error = null;
@@ -61,35 +66,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final loading = context.read<LoadingState>()..show();
     final api = context.read<AuthState>().client;
     final body = {'filters': _filters.salesPayload};
+    // Each card loads on its own: one failing endpoint (or an unexpected
+    // response shape) empties that card instead of the whole dashboard.
+    String? firstError;
+    Future<Map<String, dynamic>?> fetch(String path, Object payload) async {
+      try {
+        final res = await api.post(path, payload);
+        return res is Map ? Map<String, dynamic>.from(res) : null;
+      } on ApiException catch (e) {
+        if (e.status != 401) firstError ??= e.message;
+        return null;
+      } catch (e) {
+        firstError ??= 'Unexpected response from the server';
+        return null;
+      }
+    }
+
+    List listOf(Map? m, String k) => m?[k] is List ? m![k] as List : const [];
+
     try {
       final results = await Future.wait([
-        api.post('/api/sales/kpis', body),
-        api.post('/api/sales/timeseries', {...body, 'grain': 'month'}),
-        api.post('/api/sales/breakdown', {...body, 'dimension': 'brand', 'limit': 8}),
-        api.post('/api/sales/breakdown', {...body, 'dimension': 'salesman', 'limit': 10}),
-        api.post('/api/sales/movers', {...body, 'dimension': 'brand'}),
-        api.post('/api/inventory/kpis', {'filters': {}}),
-        api.post('/api/sales/insights', {...body, 'dimension': 'brand', 'grain': 'month', 'mode': 'yoy'}),
-        api.post('/api/sales/pivot', {...body, 'rows': 'brand', 'cols': 'quarter', 'measure': 'sales'}),
+        fetch('/api/sales/kpis', body),
+        fetch('/api/sales/timeseries', {...body, 'grain': 'month'}),
+        fetch('/api/sales/breakdown', {...body, 'dimension': 'brand', 'limit': 8}),
+        fetch('/api/sales/breakdown', {...body, 'dimension': 'salesman', 'limit': 10}),
+        fetch('/api/sales/movers', {...body, 'dimension': 'brand'}),
+        fetch('/api/inventory/kpis', {'filters': {}}),
+        fetch('/api/sales/insights', {...body, 'dimension': 'brand', 'grain': 'month', 'mode': 'yoy'}),
+        fetch('/api/sales/pivot', {...body, 'rows': 'brand', 'cols': 'quarter', 'measure': 'sales'}),
       ]);
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
+      final allFailed = results.every((r) => r == null);
       setState(() {
-        _kpis = results[0] as Map<String, dynamic>;
-        _trend = (results[1] as Map)['points'] as List? ?? [];
-        _brand = results[2] as Map<String, dynamic>;
-        _salesman = results[3] as Map<String, dynamic>;
-        _movers = (results[4] as Map)['rows'] as List? ?? [];
-        _inv = results[5] as Map<String, dynamic>;
-        _insights = (results[6] as Map)['insights'] as List? ?? [];
-        _pivot = results[7] as Map<String, dynamic>;
+        _kpis = results[0];
+        _trend = listOf(results[1], 'points');
+        _brand = results[2];
+        _salesman = results[3];
+        _movers = listOf(results[4], 'rows');
+        _inv = results[5];
+        _insights = listOf(results[6], 'insights');
+        _pivot = results[7];
+        // Whole page down → banner; some cards down → snackbar, rest still shows.
+        _error = allFailed ? firstError : null;
         _loading = false;
       });
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.message;
-        _loading = false;
-      });
+      if (!allFailed && firstError != null && mounted) {
+        reportSectionFailure(context, firstError!);
+      }
     } finally {
       loading.hide();
     }

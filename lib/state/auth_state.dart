@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +15,7 @@ class AuthState extends ChangeNotifier {
   static const _kBase = 'ardentbi_base_v2';
   // Security (HRIS-style): auto sign-out after inactivity and on app termination.
   static const _kLastActive = 'ardentbi_last_active';
+  static const _kProfile = 'ardentbi_profile';
   static const _kRememberUser = 'ardentbi_remember_user';
 
   /// Idle window before the session is dropped, in the foreground and while
@@ -54,7 +56,7 @@ class AuthState extends ChangeNotifier {
   /// Re-Order Point is limited to executives and BU heads. Mirrors the web's
   /// `isBuHeadOrAbove` — presentation gating; the API is the real gate.
   bool get isBuHeadOrAbove =>
-      const ['executive', 'salesBuHead', 'marketingBuHead'].contains(access?['level']);
+      const ['executive', 'salesBuHead', 'marketingBuHead', 'productManager'].contains(access?['level']);
 
   /// Enter demo mode: bypass the network with canned data. Used for App Store
   /// screenshot capture and offline UI walkthroughs. Not persisted.
@@ -249,25 +251,46 @@ class AuthState extends ChangeNotifier {
       user = null;
       return;
     }
+    final prefs = await SharedPreferences.getInstance();
     try {
       final res = await api.get('/api/auth/me');
       user = (res['user'] as Map).cast<String, dynamic>();
       access = res['access'] is Map ? (res['access'] as Map).cast<String, dynamic>() : null;
-    } on ApiException {
-      user = null;
-      access = null;
-      api.token = null;
-      await _persistToken();
+      await prefs.setString(_kProfile, jsonEncode({'user': user, 'access': access}));
+    } on ApiException catch (e) {
+      if (e.status == 401 || e.status == 403) {
+        // The server rejected the token: the session really is over.
+        user = null;
+        access = null;
+        api.token = null;
+        await _persistToken();
+        await prefs.remove(_kProfile);
+      } else {
+        // Offline / server unreachable: keep the session and the last-known
+        // profile so opening the app on a bad connection doesn't sign out.
+        // Screens show their own "cannot reach the server" error.
+        final cached = prefs.getString(_kProfile);
+        if (cached != null) {
+          try {
+            final m = jsonDecode(cached) as Map;
+            user = (m['user'] as Map?)?.cast<String, dynamic>();
+            access = (m['access'] as Map?)?.cast<String, dynamic>();
+          } catch (_) {}
+        }
+      }
     }
     notifyListeners();
   }
 
   void _forceSignedOut() {
+    // Several in-flight requests can 401 together; sign out once.
+    if (user == null && api.token == null) return;
     _idleTimer?.cancel();
     user = null;
     access = null;
     api.token = null;
     _persistToken();
+    SharedPreferences.getInstance().then((p) => p.remove(_kProfile));
     notifyListeners();
   }
 

@@ -136,8 +136,14 @@ class _SalesScreenState extends State<SalesScreen> {
     }
   }
 
+  // Bumped on every load; a response from an older load (filters changed
+  // while it was in flight) is dropped instead of overwriting newer data.
+  int _loadGen = 0;
+  int _detailGen = 0;
+
   Future<void> _load() async {
     if (!mounted) return;
+    final gen = ++_loadGen;
     setState(() {
       _loading = true;
       _error = null;
@@ -145,33 +151,49 @@ class _SalesScreenState extends State<SalesScreen> {
     final loading = context.read<LoadingState>()..show();
     final api = context.read<AuthState>().client;
     _loadDetail();
+
+    // Each card loads on its own, so one failing endpoint empties that card
+    // rather than the whole page.
+    String? firstError;
+    Future<Map<String, dynamic>?> fetch(String path, Object payload) async {
+      try {
+        final res = await api.post(path, payload);
+        return res is Map ? Map<String, dynamic>.from(res) : null;
+      } on ApiException catch (e) {
+        if (e.status != 401) firstError ??= e.message;
+        return null;
+      } catch (_) {
+        firstError ??= 'Unexpected response from the server';
+        return null;
+      }
+    }
+
+    List listOf(Map? m, String k) => m?[k] is List ? m![k] as List : const [];
+
     try {
       final results = await Future.wait([
-        api.post('/api/sales/kpis', _body),
-        api.post('/api/sales/timeseries', {..._body, 'grain': _grain, 'measure': _measure}),
-        api.post('/api/sales/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 12}),
-        api.post('/api/sales/pivot', {..._body, 'rows': _dimension, 'cols': 'quarter', 'measure': _measure}),
-        api.post('/api/sales/pareto', {..._body, 'dimension': _paretoDim, 'measure': _measure}),
-        api.post('/api/sales/insights', {..._body, 'dimension': _dimension, 'grain': _grain}),
-        api.post('/api/sales/comparison', _momBody),
+        fetch('/api/sales/kpis', _body),
+        fetch('/api/sales/timeseries', {..._body, 'grain': _grain, 'measure': _measure}),
+        fetch('/api/sales/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 12}),
+        fetch('/api/sales/pivot', {..._body, 'rows': _dimension, 'cols': 'quarter', 'measure': _measure}),
+        fetch('/api/sales/pareto', {..._body, 'dimension': _paretoDim, 'measure': _measure}),
+        fetch('/api/sales/insights', {..._body, 'dimension': _dimension, 'grain': _grain}),
+        fetch('/api/sales/comparison', _momBody),
       ]);
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
+      final allFailed = results.every((r) => r == null);
       setState(() {
-        _kpis = results[0] as Map<String, dynamic>;
-        _trend = (results[1] as Map)['points'] as List? ?? [];
-        _breakdown = results[2] as Map<String, dynamic>;
-        _mix = results[3] as Map<String, dynamic>;
-        _pareto = results[4] as Map<String, dynamic>;
-        _insights = (results[5] as Map)['insights'] as List? ?? [];
-        _mom = results[6] as Map<String, dynamic>;
+        _kpis = results[0];
+        _trend = listOf(results[1], 'points');
+        _breakdown = results[2];
+        _mix = results[3];
+        _pareto = results[4];
+        _insights = listOf(results[5], 'insights');
+        _mom = results[6];
+        _error = allFailed ? firstError : null;
         _loading = false;
       });
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.message;
-        _loading = false;
-      });
+      if (!allFailed && firstError != null) reportSectionFailure(context, firstError!);
     } finally {
       loading.hide();
     }
@@ -179,6 +201,7 @@ class _SalesScreenState extends State<SalesScreen> {
 
   Future<void> _loadDetail() async {
     if (!mounted) return;
+    final gen = ++_detailGen;
     setState(() => _detailLoading = true);
     final api = context.read<AuthState>().client;
     try {
@@ -188,15 +211,16 @@ class _SalesScreenState extends State<SalesScreen> {
         'pageSize': _pageSize,
         'sortBy': _sortBy,
         'sortDir': _sortDir,
-      }) as Map;
-      if (!mounted) return;
+      });
+      if (!mounted || gen != _detailGen) return;
+      final m = res is Map ? res : const {};
       setState(() {
-        _detail = res['rows'] as List? ?? [];
-        _detailTotal = (res['total'] as num?)?.toInt() ?? 0;
+        _detail = m['rows'] as List? ?? [];
+        _detailTotal = (m['total'] as num?)?.toInt() ?? 0;
         _detailLoading = false;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _detailGen) return;
       setState(() {
         _detailLoading = false;
         _error ??= e.message;

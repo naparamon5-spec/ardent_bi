@@ -124,13 +124,18 @@ class _AccruedScreenState extends State<AccruedScreen> {
     try {
       final res = await context.read<AuthState>().client.post(path, body);
       return res is Map ? Map<String, dynamic>.from(res) : null;
-    } on ApiException {
+    } on ApiException catch (e) {
+      if (mounted) reportSectionFailure(context, e.message, status: e.status);
       return null;
     }
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _loadGen = 0;
+
   Future<void> _load() async {
     if (!mounted) return;
+    final gen = ++_loadGen;
     setState(() {
       _loading = true;
       _error = null;
@@ -143,10 +148,10 @@ class _AccruedScreenState extends State<AccruedScreen> {
       final rest = await Future.wait([
         _tryPost('/api/accrued/timeseries', _body),
         _tryPost('/api/accrued/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 15}),
-        _tryPost('/api/accrued/charge-type-mix', {..._body, 'dimension': _dimension, 'limit': 12}),
-        _tryPost('/api/accrued/top-job-orders', {..._body, 'limit': 15}),
+        _tryPost('/api/accrued/type-mix', {..._body, 'dimension': _dimension, 'limit': 12}),
+        _tryPost('/api/accrued/job-orders', {..._body, 'limit': 15}),
       ]);
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _kpis = kpis;
         _trend = (rest[0]?['points'] as List?) ?? const [];
@@ -156,7 +161,7 @@ class _AccruedScreenState extends State<AccruedScreen> {
         _loading = false;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _error = e.message;
         _loading = false;
@@ -166,8 +171,12 @@ class _AccruedScreenState extends State<AccruedScreen> {
     }
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _detailGen = 0;
+
   Future<void> _loadDetail() async {
     if (!mounted) return;
+    final gen = ++_detailGen;
     setState(() => _detailLoading = true);
     final res = await _tryPost('/api/accrued/detail', {
       ..._body,
@@ -176,7 +185,7 @@ class _AccruedScreenState extends State<AccruedScreen> {
       'sortBy': _sortBy,
       'sortDir': _sortDir,
     });
-    if (!mounted) return;
+    if (!mounted || gen != _detailGen) return;
     setState(() {
       _detail = (res?['rows'] as List?) ?? const [];
       _detailTotal = (res?['total'] as num?)?.toInt() ?? 0;
@@ -217,7 +226,7 @@ class _AccruedScreenState extends State<AccruedScreen> {
   /// The top job orders are already in hand and capped at what the card shows,
   /// so the CSV is written locally rather than asking for a second export.
   Future<void> _exportTopJobOrders() async {
-    const cols = ['jobOrder', 'date', 'customer', 'salesman', 'orderValue', 'amount', 'rate', 'lines'];
+    const cols = ['jobOrder', 'date', 'customer', 'salesman', 'joAmount', 'amount', 'rate', 'lines'];
     await _share('ardent-accrued-job-orders-$_stamp.csv', _csv(cols, _topJobOrders.cast<Map>()));
   }
 
@@ -280,10 +289,10 @@ class _AccruedScreenState extends State<AccruedScreen> {
                   loading: _loading),
               KpiTile(
                   label: 'Open accrual balance',
-                  value: k['openBalance'],
+                  value: k['balance'],
                   format: 'currency',
                   loading: _loading,
-                  sub: '${Fmt.money(k['accruedTotal'] ?? 0)} accrued in total'),
+                  sub: '${Fmt.money(k['accrued'] ?? 0)} accrued in total'),
             ]),
             const SizedBox(height: 16),
             BiChartCard(
@@ -385,7 +394,7 @@ class _AccruedScreenState extends State<AccruedScreen> {
   /// one colour is carrying one kind of cost.
   Widget _chargeTypeMix() {
     final rows = ((_chargeMix?['rows'] as List?) ?? const []).cast<Map>();
-    final types = ((_chargeMix?['chargeTypes'] as List?) ?? const []).map((e) => (e ?? '').toString()).toList();
+    final types = ((_chargeMix?['types'] as List?) ?? const []).map((e) => (e ?? '').toString()).toList();
     return BiChartCard(
       title: 'Charge type mix by $_dimLabel',
       subtitle: "Each bar is one member's incidental cost split by charge type",
@@ -413,7 +422,7 @@ class _AccruedScreenState extends State<AccruedScreen> {
     ('date', 'Date', 92.0, false),
     ('customer', 'Customer', 180.0, false),
     ('salesman', 'Salesman', 150.0, false),
-    ('orderValue', 'Order value', 96.0, true),
+    ('joAmount', 'Order value', 96.0, true),
     ('amount', 'Incidental cost', 106.0, true),
     ('rate', 'Rate', 62.0, true),
     ('lines', 'Lines', 54.0, true),
@@ -455,7 +464,7 @@ class _AccruedScreenState extends State<AccruedScreen> {
                       _cell(t, Fmt.date(r['date']), maxLines: 1),
                       _cell(t, '${r['customer'] ?? '—'}'),
                       _cell(t, '${r['salesman'] ?? '—'}'),
-                      _cell(t, Fmt.money(r['orderValue']), numeric: true, maxLines: 1),
+                      _cell(t, Fmt.money(r['joAmount']), numeric: true, maxLines: 1),
                       _cell(t, Fmt.money(r['amount']), numeric: true, maxLines: 1, bold: true),
                       _cell(t, Fmt.percent(r['rate']), numeric: true, maxLines: 1),
                       _cell(t, Fmt.number(r['lines']), numeric: true, maxLines: 1),
@@ -477,12 +486,12 @@ class _AccruedScreenState extends State<AccruedScreen> {
     ('brand', 'Brand', 96.0, false),
     ('type', 'Type', 130.0, false),
     ('description', 'Description', 200.0, false),
-    ('orderValue', 'Order value', 96.0, true),
+    ('joAmount', 'Order value', 96.0, true),
     ('amount', 'Amount', 96.0, true),
     ('accrued', 'Accrued', 90.0, true),
     ('applied', 'Applied', 90.0, true),
     ('available', 'Available', 90.0, true),
-    ('openBalance', 'Open balance', 100.0, true),
+    ('balance', 'Open balance', 100.0, true),
   ];
 
   Widget _detailCard(BiTokens t) {
@@ -522,12 +531,12 @@ class _AccruedScreenState extends State<AccruedScreen> {
                         _cell(t, '${r['brand'] ?? '—'}', maxLines: 1),
                         _cell(t, '${r['type'] ?? '—'}', maxLines: 1),
                         _cell(t, '${r['description'] ?? '—'}'),
-                        _cell(t, Fmt.money(r['orderValue']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['joAmount']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['amount']), numeric: true, maxLines: 1, bold: true),
                         _cell(t, Fmt.money(r['accrued']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['applied']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['available']), numeric: true, maxLines: 1),
-                        _cell(t, Fmt.money(r['openBalance']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['balance']), numeric: true, maxLines: 1),
                       ]),
                   ],
                 ),

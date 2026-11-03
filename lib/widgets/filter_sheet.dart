@@ -416,6 +416,9 @@ class _FilterSheetState extends State<_FilterSheet> {
                           hintText: widget.module.key == 'inventory' ? 'Code or description...' : 'SKU or description...',
                           hintStyle: TextStyle(fontSize: 13, color: t.textMuted),
                           border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
                           isDense: true,
                           contentPadding: EdgeInsets.zero,
                         ),
@@ -429,50 +432,47 @@ class _FilterSheetState extends State<_FilterSheet> {
               // Stock age selector (inventory screen) — always visible, segmented buttons
               if (widget.module.hasStockAge) ...[
                 const SizedBox(height: 16),
-                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                  _label(t, 'STOCK AGE'),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(border: Border.all(color: t.gridline), borderRadius: BorderRadius.circular(10)),
-                      child: Row(children: [
-                        for (var i = 0; i < 4; i++)
-                          Expanded(
-                            child: InkWell(
-                              onTap: () {
-                                final ages = [null, 90, 180, 365];
-                                filters.setStockAgeDaysOf(widget.module.key, ages[i]);
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: filters.stockAgeDaysOf(widget.module.key) == [null, 90, 180, 365][i]
-                                      ? AppColors.critical.withValues(alpha: 0.85)
-                                      : Colors.transparent,
-                                  border: Border(
-                                    right: i < 3 ? BorderSide(color: t.gridline) : BorderSide.none,
-                                  ),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  ['All ages', 'Over 90 days', 'Over 180 days', 'Over a year'][i],
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: filters.stockAgeDaysOf(widget.module.key) == [null, 90, 180, 365][i]
-                                        ? Colors.white
-                                        : t.textPrimary,
-                                  ),
+                _label(t, 'STOCK AGE'),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: t.surface,
+                    border: Border.all(color: t.gridline),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(children: [
+                    for (final (age, text) in const [(null, 'All'), (90, '90+ days'), (180, '180+ days'), (365, '1+ year')])
+                      Expanded(
+                        child: Builder(builder: (_) {
+                          final active = filters.stockAgeDaysOf(widget.module.key) == age;
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => filters.setStockAgeDaysOf(widget.module.key, age),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              height: 36,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: active ? t.brand : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                text,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                                  color: active ? t.brandInk : t.textSecondary,
                                 ),
                               ),
                             ),
-                          ),
-                      ]),
-                    ),
-                  ),
-                ]),
+                          );
+                        }),
+                      ),
+                  ]),
+                ),
                 const SizedBox(height: 12),
                 InkWell(
                   onTap: () => filters.setExcludeCreditMemosOf(widget.module.key, !filters.excludeCreditMemosOf(widget.module.key)),
@@ -840,7 +840,11 @@ class _OptionsPickerState extends State<_OptionsPicker> {
     return '₱${amount.toStringAsFixed(0)}';
   }
 
+  // A slower earlier search must not overwrite a newer one's options.
+  int _gen = 0;
+
   Future<void> _load() async {
+    final gen = ++_gen;
     setState(() {
       _loading = true;
       _error = null;
@@ -856,7 +860,9 @@ class _OptionsPickerState extends State<_OptionsPicker> {
       final path = '${widget.optionsBase}${widget.dimension}?f=$filtersJson$searchParam';
       
       final res = await auth.client.get(path);
-      final values = (res['values'] as List?) ?? const [];
+      // The sheet may have been closed while this was in flight.
+      if (!mounted || gen != _gen) return;
+      final values = (res is Map ? res['values'] as List? : null) ?? const [];
       setState(() {
         _options = values.map((e) {
           if (e is Map) {
@@ -872,6 +878,7 @@ class _OptionsPickerState extends State<_OptionsPicker> {
         _loading = false;
       });
     } on ApiException catch (e) {
+      if (!mounted || gen != _gen) return;
       setState(() {
         _error = e.message;
         _loading = false;

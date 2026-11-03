@@ -33,6 +33,7 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
   List<dynamic> _rows = [];
 
   Map<String, dynamic>? _brandPivot;
+  Map<String, dynamic>? _analysis;
 
   String _mode = 'yoy';
   String _measure = 'sales';
@@ -77,7 +78,7 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
   Map<String, dynamic> get _body => {
     'filters': _filters.payload('periods'),
     'mode': _mode,
-    'likeForLike': _likeForLike,
+    'alignPartial': _likeForLike,
     if (_selectedQuarter != null) 'quarter': _selectedQuarter,
   };
 
@@ -85,13 +86,18 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
     try {
       final res = await context.read<AuthState>().client.post(path, body);
       return res is Map ? Map<String, dynamic>.from(res) : null;
-    } on ApiException {
+    } on ApiException catch (e) {
+      if (mounted) reportSectionFailure(context, e.message, status: e.status);
       return null;
     }
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _loadGen = 0;
+
   Future<void> _load() async {
     if (!mounted) return;
+    final gen = ++_loadGen;
     setState(() {
       _loading = true;
       _error = null;
@@ -110,14 +116,18 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
             : 'year',
         'measure': _measure,
       });
-      if (!mounted) return;
+      // Customer movement (vw_sales_analysis). Its windows are fixed, so the
+      // date range doesn't move it — only the other filters do, as on the web.
+      final analysis = await _tryPost('/api/sales/analysis', {'filters': _filters.payload('periods')});
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _rows = (res as Map)['rows'] as List? ?? [];
         _brandPivot = pivot;
+        _analysis = analysis;
         _loading = false;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _error = e.message;
         _loading = false;
@@ -146,12 +156,20 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
     final t = BiTokens.of(context);
     final filters = context.watch<FilterState>();
     final rows = _rows.cast<Map>();
+    // A prior under 1% of the current period (e.g. a partial first year of
+    // data) turns into a six-digit growth % that flattens every other bar and
+    // wins "strongest period" on noise. Keep those out of growth comparisons;
+    // the detail table still lists them.
+    final growthRows = rows.where((r) {
+      final prior = _prior(r).abs();
+      return prior > 0 && prior >= _cur(r).abs() * 0.01;
+    }).toList();
 
     // Headline KPIs, all derived from the comparison rows.
     Map? latest = rows.isNotEmpty ? rows.last : null;
     Map? strongest;
     Map? weakest;
-    for (final r in rows) {
+    for (final r in growthRows) {
       final g = _growth(r);
       if (g == null) continue;
       if (strongest == null ||
@@ -240,16 +258,19 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
             const SizedBox(height: 16),
             BiChartCard(
               title: 'Growth rate',
-              subtitle: _mode == 'yoy'
-                  ? 'Percentage change against the prior year'
-                  : 'Percentage change against the prior period',
+              subtitle: (_mode == 'yoy'
+                      ? 'Percentage change against the prior year'
+                      : 'Percentage change against the prior period') +
+                  (growthRows.length < rows.length
+                      ? ' · periods with a negligible prior base are left out'
+                      : ''),
               currency: false,
               percent: true,
-              categories: rows
+              categories: growthRows
                   .map((r) => (r['label'] ?? '').toString())
                   .toList(),
               series: [
-                SeriesSpec('Growth', rows.map((r) => _growth(r) ?? 0).toList()),
+                SeriesSpec('Growth', growthRows.map((r) => _growth(r) ?? 0).toList()),
               ],
               height: 240,
               initialType: BiChartType.column,
@@ -263,6 +284,8 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
             _brandCard(t),
             const SizedBox(height: 16),
             _detailCard(t, rows),
+            const SizedBox(height: 24),
+            ..._customerMovement(t),
             const SizedBox(height: 24),
           ],
         ),
@@ -358,6 +381,93 @@ class _PeriodsScreenState extends State<PeriodsScreen> {
         ),
       ),
     );
+  }
+
+  // ── Customer movement ───────────────────────────────────────────────
+
+  List<Map> _saList(String k) => ((_analysis?[k] as List?) ?? const []).whereType<Map>().toList();
+  double _num(dynamic v) => (v as num?)?.toDouble() ?? 0;
+
+  /// The web's "Customer movement" block: the sales-analysis rules applied to
+  /// the filtered sales, with fixed this-year / last-year windows.
+  List<Widget> _customerMovement(BiTokens t) {
+    final win = (_analysis?['windows'] as Map?) ?? const {};
+    final thisYear = (win['thisYear'] ?? 'This year').toString();
+    final lastYear = (win['lastYear'] ?? 'last year').toString();
+    final base = (win['movementBase'] ?? 'the base period').toString();
+    final brands = _saList('brands');
+    final churned = _saList('churned');
+    final contraction = _saList('contraction');
+    String who(Map r) => '${r['customer'] ?? '—'} · ${r['brand'] ?? '—'}';
+    String lossTotal(List<Map> l) => Fmt.money(l.fold<double>(0, (s, r) => s + _num(r['amount'])));
+
+    List<SeriesSpec> lossSeries(List<Map> l) => [
+          SeriesSpec(base, l.map((r) => _num(r['lastYear'])).toList()),
+          SeriesSpec(thisYear, l.map((r) => _num(r['thisYear'])).toList()),
+          SeriesSpec('Change', l.map((r) => _num(r['amount'])).toList()),
+        ];
+
+    // Older servers don't have the endpoint; leave the section out entirely.
+    if (_analysis == null || _analysis!['available'] == false) return const [];
+
+    return [
+      _eyebrow(t, 'CUSTOMER MOVEMENT'),
+      const SizedBox(height: 6),
+      Text(
+        'Every filter above narrows these except the dates: the windows stay $thisYear against '
+        '$lastYear, with customer movement measured against $base.',
+        style: TextStyle(fontSize: 11.5, color: t.textMuted),
+      ),
+      const SizedBox(height: 12),
+      BiChartCard(
+        title: 'Revenue by brand, this year against last',
+        subtitle: '$thisYear against $lastYear. The current year is still running, so a shorter bar is not yet a decline.',
+        categories: brands.map((b) => (b['brand'] ?? '—').toString()).toList(),
+        series: [
+          SeriesSpec(thisYear, brands.map((b) => _num(b['thisYear'])).toList()),
+          SeriesSpec(lastYear, brands.map((b) => _num(b['lastYear'])).toList()),
+        ],
+        height: 300,
+        initialType: BiChartType.column,
+        types: const [BiChartType.column],
+      ),
+      const SizedBox(height: 16),
+      BiChartCard(
+        title: 'Where revenue moved',
+        subtitle: 'Customer gains and losses this year, measured against $base.',
+        bars: _saList('movements').map((r) => BarDatum((r['category'] ?? '—').toString(), _num(r['amount']))).toList(),
+        signColors: true,
+        initialType: BiChartType.bar,
+        types: const [BiChartType.bar, BiChartType.column],
+      ),
+      const SizedBox(height: 16),
+      BiChartCard(
+        title: 'Largest customer movements',
+        subtitle: 'The twelve biggest swings, gains and losses together. Each bar is one customer within one brand.',
+        bars: _saList('customers').map((r) => BarDatum(who(r), _num(r['amount']))).toList(),
+        signColors: true,
+        initialType: BiChartType.bar,
+        types: const [BiChartType.bar],
+      ),
+      const SizedBox(height: 16),
+      BiChartCard(
+        title: 'Lost from churned customers — ${lossTotal(churned)}',
+        subtitle: 'Bought over ₱1M in $base and under ₱1M, or under a fifth of that, in $thisYear. Biggest loss first.',
+        categories: churned.map(who).toList(),
+        series: lossSeries(churned),
+        defaultTable: true,
+        types: const [BiChartType.column],
+      ),
+      const SizedBox(height: 16),
+      BiChartCard(
+        title: 'Customers under contraction — ${lossTotal(contraction)}',
+        subtitle: 'Bought over ₱1M in $base and still buying, but less: above a fifth of that and below it in $thisYear.',
+        categories: contraction.map(who).toList(),
+        series: lossSeries(contraction),
+        defaultTable: true,
+        types: const [BiChartType.column],
+      ),
+    ];
   }
 
   Widget _eyebrow(BiTokens t, String s) => Text(

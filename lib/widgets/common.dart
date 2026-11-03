@@ -274,13 +274,29 @@ class CompactSelect extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 14,
                         fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                        color: selected ? t.brandInk : t.textPrimary)),
+                        color: selected ? t.brand : t.textPrimary)),
               ),
-              if (selected) Icon(Icons.check_rounded, size: 18, color: t.brandInk),
+              if (selected) Icon(Icons.check_rounded, size: 18, color: t.brand),
             ]),
           ),
         ),
       ),
     );
   }
+}
+
+DateTime? _lastSectionFailure;
+
+/// A card's request failed while the rest of the page loaded. Without this the
+/// card just reads "No data for this selection", which hides real errors. One
+/// snackbar per burst — a page firing five failing calls shows it once.
+/// 401s are skipped: those already sign the user out.
+void reportSectionFailure(BuildContext context, String message, {int? status}) {
+  if (status == 401 || !context.mounted) return;
+  final now = DateTime.now();
+  if (_lastSectionFailure != null && now.difference(_lastSectionFailure!) < const Duration(seconds: 4)) return;
+  _lastSectionFailure = now;
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+    SnackBar(content: Text("Some sections couldn't load: $message")),
+  );
 }

@@ -1135,7 +1135,8 @@ FlTitlesData _titles(BiTokens t, List<String> categories, bool currency, double 
       leftTitles: AxisTitles(
         sideTitles: SideTitles(
           showTitles: true,
-          reservedSize: 44,
+          // "₱1,200 M" needs more room than a bare number.
+          reservedSize: currency && !percent ? 62 : 44,
           interval: maxY / 2,
           getTitlesWidget: (v, meta) {
             if (v == 0) return const SizedBox.shrink();
@@ -1205,16 +1206,21 @@ class _LineView extends StatelessWidget {
     final t = BiTokens.of(context);
     if (categories.isEmpty) return _empty(t, height);
     double maxY = 0;
+    // Negative values (a falling growth %, a loss-making month) need room below
+    // zero; pinning the axis at 0 would draw them off the chart.
+    double minY = 0;
     for (final s in series) {
       for (final v in s.data) {
         if (v > maxY) maxY = v;
+        if (v < minY) minY = v;
       }
     }
-    if (maxY == 0) maxY = 1;
+    if (maxY == 0 && minY == 0) maxY = 1;
     for (final m in markLines) {
       if (m.value > maxY) maxY = m.value;
     }
     maxY *= 1.12;
+    minY *= 1.12;
 
     return Column(
       children: [
@@ -1222,12 +1228,12 @@ class _LineView extends StatelessWidget {
           height: height,
           child: LineChart(
             LineChartData(
-              minY: 0,
+              minY: minY,
               maxY: maxY,
               gridData: FlGridData(
                 show: true,
                 drawVerticalLine: false,
-                horizontalInterval: maxY / 4,
+                horizontalInterval: (maxY - minY) / 4,
                 getDrawingHorizontalLine: (_) => FlLine(color: t.gridline, strokeWidth: 1),
               ),
               borderData: FlBorderData(show: false),
@@ -1328,6 +1334,7 @@ class _ColumnsView extends StatelessWidget {
     final t = BiTokens.of(context);
     if (categories.isEmpty) return _empty(t, height);
     double maxY = 0;
+    double minY = 0;
     if (normalize) {
       maxY = 100;
     } else {
@@ -1337,14 +1344,16 @@ class _ColumnsView extends StatelessWidget {
           final v = s.data.length > x ? s.data[x] : 0.0;
           if (stacked) {
             per += v;
-          } else if (v > per) {
-            per = v;
+          } else {
+            if (v > per) per = v;
+            // Grouped bars can go negative (growth %, losses); give them room.
+            if (v < minY) minY = v;
           }
         }
         if (per > maxY) maxY = per;
       }
     }
-    if (maxY == 0) maxY = 1;
+    if (maxY == 0 && minY == 0) maxY = 1;
 
     return Column(
       children: [
@@ -1353,12 +1362,12 @@ class _ColumnsView extends StatelessWidget {
           child: BarChart(
             BarChartData(
               alignment: BarChartAlignment.spaceAround,
-              minY: 0,
+              minY: minY * 1.12,
               maxY: normalize ? 100 : maxY * 1.12,
               gridData: FlGridData(
                 show: true,
                 drawVerticalLine: false,
-                horizontalInterval: maxY / 4,
+                horizontalInterval: ((normalize ? 100 : maxY * 1.12) - minY * 1.12) / 4,
                 getDrawingHorizontalLine: (_) => FlLine(color: t.gridline, strokeWidth: 1),
               ),
               borderData: FlBorderData(show: false),

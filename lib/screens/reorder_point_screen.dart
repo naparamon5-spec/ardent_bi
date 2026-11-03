@@ -107,7 +107,8 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
     try {
       final res = await context.read<AuthState>().client.post(path, body);
       return res is Map ? Map<String, dynamic>.from(res) : null;
-    } on ApiException {
+    } on ApiException catch (e) {
+      if (mounted) reportSectionFailure(context, e.message, status: e.status);
       return null;
     }
   }
@@ -127,8 +128,12 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
     }
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _loadGen = 0;
+
   Future<void> _load() async {
     if (!mounted) return;
+    final gen = ++_loadGen;
     setState(() {
       _loading = true;
       _error = null;
@@ -142,7 +147,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
         _tryPost('/api/reorder-point/breakdown', {..._body, 'dimension': _dimension, 'measure': _measure, 'limit': 15}),
         _tryPost('/api/reorder-point/breakdown', {..._body, 'dimension': 'instruction', 'measure': 'items', 'limit': 8}),
       ]);
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _kpis = kpis;
         _breakdown = rest[0];
@@ -150,7 +155,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
         _loading = false;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _error = e.status == 403
             ? 'Re-Order Point is available to business unit heads and executives only.'
@@ -162,8 +167,12 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
     }
   }
 
+  // Responses from an older call (filters changed mid-flight) are dropped.
+  int _detailGen = 0;
+
   Future<void> _loadDetail() async {
     if (!mounted) return;
+    final gen = ++_detailGen;
     setState(() => _detailLoading = true);
     final res = await _tryPost('/api/reorder-point/detail', {
       ..._body,
@@ -172,7 +181,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
       'sortBy': _sortBy,
       'sortDir': _sortDir,
     });
-    if (!mounted) return;
+    if (!mounted || gen != _detailGen) return;
     setState(() {
       _detail = (res?['rows'] as List?) ?? const [];
       _detailTotal = (res?['total'] as num?)?.toInt() ?? 0;
@@ -204,7 +213,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
       // The export endpoint may not be served in every environment; fall back to
       // the page that is already in hand rather than failing the tap.
       const cols = ['sku', 'itemDescription', 'brand', 'productGroup', 'onHand', 'backOrder', 'safetyStock',
-        'leadTimeDemand', 'rop', 'forecast', 'avgNetCost', 'amount', 'instruction'];
+        'leadTimeDemand', 'rop', 'forecast', 'unitCost', 'amount', 'instruction'];
       await _share('ardent-reorder-point-$_stamp.csv', _csv(cols, _detail.cast<Map>()));
     }
   }
@@ -361,7 +370,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
     ('leadTimeDemand', 'Lead Time Demand', 118.0, true),
     ('rop', 'ROP', 64.0, true),
     ('forecast', 'Forecast Qty', 96.0, true),
-    ('avgNetCost', 'Avg Net Cost', 96.0, true),
+    ('unitCost', 'Avg Net Cost', 96.0, true),
     ('amount', 'Order Amount', 110.0, true),
     ('instruction', 'Instruction', 104.0, false),
   ];
@@ -408,7 +417,7 @@ class _ReorderPointScreenState extends State<ReorderPointScreen> {
                         _cell(t, Fmt.number(r['leadTimeDemand']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.number(r['rop']), numeric: true, maxLines: 1, bold: true),
                         _cell(t, Fmt.number(r['forecast']), numeric: true, maxLines: 1),
-                        _cell(t, Fmt.money(r['avgNetCost']), numeric: true, maxLines: 1),
+                        _cell(t, Fmt.money(r['unitCost']), numeric: true, maxLines: 1),
                         _cell(t, Fmt.money(r['amount']), numeric: true, maxLines: 1, bold: true),
                         _cell(
                           t,

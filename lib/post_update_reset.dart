@@ -16,6 +16,7 @@ class PostUpdateReset {
   // Keys owned by AuthState — kept in sync with lib/state/auth_state.dart.
   static const _kToken = 'ardentbi_jwt';
   static const _kLastActive = 'ardentbi_last_active';
+  static const _kProfile = 'ardentbi_profile';
 
   /// Call once from `main()` BEFORE `runApp`.
   static Future<void> runIfVersionChanged() async {
@@ -32,6 +33,7 @@ class PostUpdateReset {
             'clearing token');
         await prefs.remove(_kToken);
         await prefs.remove(_kLastActive);
+        await prefs.remove(_kProfile);
       }
       await prefs.setString(_kLastLaunchedVersion, current);
     } catch (e) {
